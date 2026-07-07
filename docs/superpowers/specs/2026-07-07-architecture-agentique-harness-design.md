@@ -9,6 +9,13 @@ L'agent VIGIE (V0→V2) appelle aujourd'hui l'API Anthropic à la main dans `age
 
 Ce document définit la migration de ce socle vers le **Claude Agent SDK** comme harness, avec une décomposition en **agents spécialisés** plutôt qu'un agent unique enrichi.
 
+**Note d'implémentation (validée après sondage du paquet réel `claude-agent-sdk==0.2.111`)** : ce SDK ne fait pas d'appel HTTP direct à l'API Anthropic — il pilote le binaire CLI `claude` (Claude Code) en sous-processus via un transport stdio JSON (`query()`/`ClaudeSDKClient` lèvent `CLINotFoundError` si le CLI n'est pas installé). Conséquences actées et acceptées pour ce projet :
+
+- L'image Docker de l'agent (`agent/Dockerfile`) doit installer Node.js + le paquet npm `@anthropic-ai/claude-code`, en plus de Python.
+- Chaque appel LLM lance un sous-processus CLI (coût de démarrage par tour, à multiplier par tenant et par cycle d'alerting) — accepté en échange des hooks/sous-agents/sessions natifs du SDK.
+- Le mode mock (`VIGIE_MOCK_LLM=1`) reste un court-circuit dans `run_agent()` **avant** tout appel au SDK — jamais besoin d'installer le CLI en CI/tests.
+- La correction du blocage asyncio (§1, point 1) reste valide : `query()` est un itérateur async, communication non bloquante avec le sous-processus.
+
 Deux problèmes concrets motivent aussi cette migration, indépendamment du choix stratégique :
 
 1. **Bug de blocage asyncio** : `agent_loop()` est `async def` mais `create_message()` effectue un appel HTTP synchrone bloquant à l'API Anthropic. Chaque investigation diagnostic gèle la boucle événements FastAPI, bloquant tous les tenants concurrents. Le SDK est asyncio-natif et corrige ceci sans effort dédié.
@@ -88,7 +95,8 @@ Remplace le code dupliqué dans chaque service :
 
 - `PreToolUse` : vérifie `check_budget(tenant_id)` avant **chaque** appel outil (plus précis que la vérification unique en tête de boucle actuelle — coupe en cours d'investigation si le budget s'épuise après quelques tours) ; valide que toute requête LogQL/PromQL référence bien le `tenant_id` de la session, jamais un autre.
 - `PostToolUse` : `audit()` automatique (remplace les appels manuels épars dans `alerting.py`).
-- `Stop` : `record_usage()` centralisé à partir de l'usage réel remonté par le SDK.
+
+`record_usage()` n'est **pas** un hook : `StopHookInput` (SDK réel, sondé) ne transporte aucune donnée d'usage token. L'usage est porté par le `ResultMessage` final de l'itérateur retourné par `query()` (champs `usage`, `total_cost_usd`, `num_turns`) — `run_agent()` (§3.2 `runner.py`) l'extrait directement à la fin de l'itération et appelle `record_usage()` une seule fois par appel d'agent.
 
 ### 3.3 `agent/tools/mcp_server.py`
 
