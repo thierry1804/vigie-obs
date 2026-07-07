@@ -1,47 +1,36 @@
 # =====================================================================
-# VIGIE — Agent d'observabilité branchable (V0)
-# Stack : Vector (collecte) + Loki (logs) + Prometheus (métriques)
-#         + Grafana (dashboards) + Agent LLM (diagnostic conversationnel)
-#
-# Branchement sur un projet existant :
-#   1. Adapter les chemins de logs dans config/vector.toml (section [sources])
-#   2. ANTHROPIC_API_KEY dans .env
-#   3. docker compose up -d
-#   Aucune modification du code applicatif requise.
+# VIGIE — Stack complète V2
 # =====================================================================
 
 name: vigie
 
 services:
 
-  # --- Couche collecte : agnostique de la stack applicative -----------
   vector:
     image: timberio/vector:0.43.X-alpine
     container_name: vigie-vector
     restart: unless-stopped
     volumes:
       - ./config/vector.toml:/etc/vector/vector.toml:ro
-      # Points d'ancrage universels — adapter selon le projet observé :
-      - /var/log:/host/var/log:ro                      # logs système + serveur web
-      - /var/lib/docker/containers:/host/containers:ro  # logs conteneurs (si projet dockerisé)
-      # - /path/vers/projet/var/log:/host/app/log:ro   # logs applicatifs (Symfony, Laravel…)
+      - /var/log:/host/var/log:ro
+      - /var/lib/docker/containers:/host/containers:ro
+      - ./lab/stacks:/host/app:ro
     environment:
       - VECTOR_LOG=warn
     depends_on:
       - loki
     networks: [vigie]
 
-  # --- Stockage logs ---------------------------------------------------
   loki:
     image: grafana/loki:3.3.0
     container_name: vigie-loki
     restart: unless-stopped
-    command: -config.file=/etc/loki/local-config.yaml
+    command: -config.file=/etc/loki/loki.yaml
     volumes:
+      - ./config/loki.yaml:/etc/loki/loki.yaml:ro
       - loki-data:/loki
     networks: [vigie]
 
-  # --- Métriques système + scraping ------------------------------------
   node-exporter:
     image: prom/node-exporter:v1.8.2
     container_name: vigie-node-exporter
@@ -61,7 +50,6 @@ services:
       - prom-data:/prometheus
     networks: [vigie]
 
-  # --- Dashboards -------------------------------------------------------
   grafana:
     image: grafana/grafana:11.4.0
     container_name: vigie-grafana
@@ -74,24 +62,61 @@ services:
     volumes:
       - grafana-data:/var/lib/grafana
       - ./config/grafana-datasources.yml:/etc/grafana/provisioning/datasources/ds.yml:ro
+      - ./config/grafana/provisioning/dashboards.yml:/etc/grafana/provisioning/dashboards/dashboards.yml:ro
+      - ./config/grafana/provisioning/json:/etc/grafana/provisioning/dashboards/json:ro
     networks: [vigie]
 
-  # --- L'agent LLM : diagnostic conversationnel + rapports --------------
+  tempo:
+    image: grafana/tempo:2.6.1
+    container_name: vigie-tempo
+    restart: unless-stopped
+    command: ["-config.file=/etc/tempo.yaml"]
+    volumes:
+      - ./config/tempo.yaml:/etc/tempo.yaml:ro
+      - tempo-data:/var/tempo
+    networks: [vigie]
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.114.0
+    container_name: vigie-otel-collector
+    restart: unless-stopped
+    command: ["--config=/etc/otel-collector.yaml"]
+    volumes:
+      - ./config/otel-collector.yaml:/etc/otel-collector.yaml:ro
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+    depends_on:
+      - tempo
+    networks: [vigie]
+
   agent:
-    build: ./agent
+    build:
+      context: .
+      dockerfile: agent/Dockerfile
     container_name: vigie-agent
     restart: unless-stopped
     ports:
       - "8080:8080"
     environment:
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - VIGIE_MOCK_LLM=${VIGIE_MOCK_LLM:-1}
+      - VIGIE_API_TOKEN=${VIGIE_API_TOKEN:-}
       - LOKI_URL=http://loki:3100
       - PROMETHEUS_URL=http://prometheus:9090
-      - MODEL_TRIAGE=claude-haiku-4-5-20251001   # classification / filtrage : modèle léger
-      - MODEL_DIAGNOSTIC=claude-sonnet-4-6        # analyse & corrélation : modèle fort
+      - TEMPO_URL=http://tempo:3200
+      - VIGIE_DATA_DIR=/data
+      - VIGIE_ALERT_INTERVAL_MINUTES=${VIGIE_ALERT_INTERVAL_MINUTES:-10}
+      - VIGIE_SLACK_WEBHOOK_URL=${VIGIE_SLACK_WEBHOOK_URL:-}
+      - MODEL_TRIAGE=claude-haiku-4-5-20251001
+      - MODEL_DIAGNOSTIC=claude-sonnet-4-6
+    volumes:
+      - agent-data:/data
+      - ./config/taxonomies:/app/config/taxonomies
     depends_on:
       - loki
       - prometheus
+      - tempo
     networks: [vigie]
 
 networks:
@@ -101,3 +126,5 @@ volumes:
   loki-data:
   prom-data:
   grafana-data:
+  tempo-data:
+  agent-data:

@@ -1,0 +1,47 @@
+# VIGIE — Config Vector auto-générée (Discovery)
+# Tenant: {{ tenant_id }}
+
+{% for source in sources %}
+[sources.{{ source.name }}]
+type = "file"
+include = [{% for inc in source.include %}"{{ inc }}"{% if not loop.last %}, {% endif %}{% endfor %}]
+ignore_older_secs = 86400
+
+{% endfor %}
+[transforms.normalize]
+type = "remap"
+inputs = [{% for source in sources %}"{{ source.name }}"{% if not loop.last %}, {% endif %}{% endfor %}]
+source = '''
+structured, err = parse_json(.message)
+if err == null { . = merge!(., structured) }
+if !exists(.level) {
+  msg = string!(.message)
+  if contains(msg, "ERROR") || contains(msg, "error") { .level = "error"
+  } else if contains(msg, "WARN") { .level = "warning"
+  } else { .level = "info" } }
+.message = replace(string!(.message), r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', "<email-masqué>")
+.tenant_id = "{{ tenant_id }}"
+if exists(.trace_id) { .correlation_id = string!(.trace_id) }
+'''
+
+[transforms.business_events]
+type = "remap"
+inputs = ["normalize"]
+source = '''
+msg = downcase(string!(.message))
+if contains(msg, "created") || contains(msg, "créé") || contains(msg, "commande") {
+  .stream_type = "business"
+} else { .stream_type = "technical" }
+.business_event_type = "unknown"
+'''
+
+[sinks.loki]
+type = "loki"
+inputs = ["business_events"]
+endpoint = "http://loki:3100"
+encoding.codec = "json"
+labels.tenant_id = "{{ tenant_id }}"
+labels.level = "{{ level }}"
+labels.stream_type = "{{ stream_type }}"
+labels.business_event_type = "{{ business_event_type }}"
+labels.trace_id = "{{ trace_id }}"

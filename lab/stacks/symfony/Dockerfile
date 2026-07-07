@@ -1,0 +1,5 @@
+FROM alpine:3.20
+RUN mkdir -p /logs/var/log
+COPY generate.sh /generate.sh
+RUN chmod +x /generate.sh
+CMD ["/generate.sh"]

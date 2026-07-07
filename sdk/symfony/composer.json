@@ -1,0 +1,17 @@
+{
+  "name": "etech/vigie-otel-symfony",
+  "description": "Bundle OpenTelemetry optionnel pour VIGIE",
+  "type": "symfony-bundle",
+  "license": "MIT",
+  "require": {
+    "php": ">=8.2",
+    "open-telemetry/opentelemetry": "^1.0",
+    "open-telemetry/exporter-otlp": "^1.0",
+    "symfony/http-kernel": "^6.4|^7.0"
+  },
+  "autoload": {
+    "psr-4": {
+      "Etech\\VigieOtel\\": "src/"
+    }
+  }
+}

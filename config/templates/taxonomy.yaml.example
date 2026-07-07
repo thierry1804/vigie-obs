@@ -1,0 +1,11 @@
+events:
+  - name: order_created
+    description: Nouvelle commande
+    patterns:
+      - commande créée
+      - order created
+  - name: payment_received
+    description: Paiement reçu
+    patterns:
+      - paiement reçu
+      - payment received

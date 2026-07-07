@@ -1,77 +1,44 @@
-# VIGIE — Agent d'observabilité branchable (V0)
+# VIGIE — Agent d'observabilité branchable
 
-Observabilité technique **et** fonctionnelle sur un projet existant, **sans modifier le code applicatif**. L'agent se branche aux frontières universelles (logs, métriques système, trafic) et expose un diagnostic conversationnel propulsé par LLM.
+Observabilité technique **et** fonctionnelle sur un projet existant, **sans modifier le code applicatif** (SDK OTel optionnel en V2).
 
-## Architecture
+## Versions
 
-```
-                         ┌─────────────────────────────────────┐
-  Projet observé         │              VIGIE                  │
-  (n'importe quelle      │                                     │
-   stack)                │  Vector ──► Loki ◄──┐               │
-     │ logs fichiers ───►│  (collecte  (logs)  │               │
-     │ logs conteneurs ─►│   + normali-        ├──► Agent LLM  │
-     │ métriques OS ────►│   sation    Prome-  │    (FastAPI + │
-                         │   + masquage theus ◄┘     tool use) │
-                         │   PII)      (métriques)      │      │
-                         │                │             │      │
-                         │                ▼             ▼      │
-                         │             Grafana      /ask       │
-                         │           (dashboards)  /report     │
-                         └─────────────────────────────────────┘
-```
+| Version | Tag | Contenu |
+|---|---|---|
+| V0 | 0.1.0 | Collecte + agent réactif |
+| V1 | 1.0.0 | Discovery, taxonomie, alerting, multi-tenant partiel |
+| V2 | 2.0.0 | + Tempo, MCP, SDK OTel, isolation complète |
 
-**Principe clé** : la seule chose qui change d'un projet à l'autre est `config/vector.toml` (chemins des logs). Tout le reste est identique. C'est ce qui rend l'agent "branchable".
-
-## Démarrage
+## Démarrage rapide
 
 ```bash
-cp .env.example .env          # renseigner ANTHROPIC_API_KEY
-# adapter les chemins de logs dans config/vector.toml et docker-compose.yml
+cp .env.example .env
 docker compose up -d --build
 ```
 
-- Grafana : http://localhost:3000 (admin / mot de passe du .env)
-- Agent : http://localhost:8080/docs (Swagger)
+- Grafana : http://localhost:3000
+- Agent : http://localhost:8080/docs
 
-## Utilisation de l'agent
+## CLI
 
 ```bash
-# Diagnostic conversationnel
-curl -X POST http://localhost:8080/ask \
-  -H "Content-Type: application/json" \
-  -d '{"question": "Pourquoi y a-t-il eu un pic d'erreurs 500 cette nuit ?"}'
-
-# Rapport quotidien (à brancher sur un cron / n8n / Slack webhook)
-curl http://localhost:8080/report/daily
+PYTHONPATH=. python -m cli discover ./lab/stacks/symfony -o vector.proposed.toml
+PYTHONPATH=. python -m cli taxonomy propose --tenant default
 ```
 
-## Ce que fait la V0
+## Tests
 
-- **Collecte zéro-code** : logs serveur web, logs applicatifs, logs conteneurs, métriques système.
-- **Normalisation** : format pivot JSON, niveau de log inféré, masquage PII (emails) à la collecte.
-- **Pré-classification métier** : heuristique par mots-clés (`stream_type=business`) — c'est volontairement naïf, la V1 confie cet apprentissage à l'agent.
-- **Agent diagnostic** : boucle agentique Plan-Exécute-Vérifie avec Loki et Prometheus comme outils, garde-fous de budget (8 tours max, résultats tronqués).
-- **Rapport quotidien** : santé technique + activité métier inférée.
+```bash
+python3 -m venv .venv
+.venv/bin/pip install -r agent/requirements.txt
+PYTHONPATH=. VIGIE_MOCK_LLM=1 .venv/bin/pytest tests/ -v
+```
 
-## Maîtrise du coût LLM
+## Documentation
 
-Le LLM n'analyse **jamais** le flux brut : les logs transitent par Vector/Loki (règles classiques, coût nul). Le modèle n'est appelé que :
-1. À la demande (`/ask`) ;
-2. Sur rapport programmé (`/report/daily`) ;
-3. (V1) Sur anomalie détectée par seuils — triage par Haiku, escalade Sonnet.
-
-## Roadmap
-
-| Version | Contenu |
-|---------|---------|
-| **V0** (ce dépôt) | Collecte + normalisation + agent conversationnel + rapport quotidien |
-| **V1** | Découverte automatique des formats de logs (l'agent génère les transforms Vector), extraction d'événements métier apprise, alerting Slack en langage naturel, boucle anomalie Haiku→Sonnet |
-| **V2** | SDK OTel optionnel (tracing profond), serveur MCP exposant `get_project_health`, `query_incidents`, `get_business_kpis` aux autres agents de la chaîne |
-
-## Limites assumées (V0)
-
-- Pas de tracing intra-applicatif (nécessite SDK ou eBPF — V2).
-- L'inférence métier dépend de la verbosité des logs existants.
-- Rétention Loki par défaut (à dimensionner selon le volume du projet).
-- Mono-projet ; le label `projet` prépare le multi-tenant.
+- [Install V1](docs/runbooks/install-v1.md)
+- [Install V2](docs/runbooks/install-v2.md)
+- [Intégration MCP](docs/mcp-integration.md)
+- [Validations externes pending](docs/pending-external-validation.md)
+- [CHANGELOG](CHANGELOG.md)

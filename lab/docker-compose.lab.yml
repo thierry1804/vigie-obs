@@ -1,0 +1,22 @@
+# Lab VIGIE — 3 stacks + stack observabilité
+
+services:
+  symfony-lab:
+    build: ./stacks/symfony
+    volumes:
+      - symfony-logs:/logs
+
+  laravel-lab:
+    build: ./stacks/laravel
+    volumes:
+      - laravel-logs:/logs
+
+  node-lab:
+    build: ./stacks/node
+    volumes:
+      - node-logs:/logs
+
+volumes:
+  symfony-logs:
+  laravel-logs:
+  node-logs:
