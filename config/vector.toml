@@ -1,0 +1,84 @@
+# =====================================================================
+# VIGIE — Couche collecte & normalisation (Vector)
+# Principe : capter aux frontières universelles (fichiers de logs,
+# stdout conteneurs), normaliser vers un format pivot, pousser vers Loki.
+# C'est CE fichier qu'on adapte projet par projet — jamais le code client.
+# =====================================================================
+
+# ---------- SOURCES : les points d'ancrage ----------------------------
+
+# Logs serveur web (Nginx / Apache) — présents sur ~tous les projets web
+[sources.web_server]
+type = "file"
+include = ["/host/var/log/nginx/*.log", "/host/var/log/apache2/*.log"]
+ignore_older_secs = 86400
+
+# Logs applicatifs — adapter le chemin au projet (Symfony var/log, Laravel storage/logs…)
+[sources.app_logs]
+type = "file"
+include = ["/host/app/log/*.log"]
+ignore_older_secs = 86400
+
+# Logs conteneurs Docker (si le projet observé est dockerisé)
+[sources.docker_logs]
+type = "file"
+include = ["/host/containers/*/*-json.log"]
+ignore_older_secs = 86400
+
+# ---------- TRANSFORMS : normalisation vers le format pivot -----------
+
+# Parse best-effort : JSON si possible, sinon extraction de niveau de log
+[transforms.normalize]
+type = "remap"
+inputs = ["web_server", "app_logs", "docker_logs"]
+source = '''
+structured, err = parse_json(.message)
+if err == null {
+  . = merge!(., structured)
+}
+
+# Niveau de log inféré si absent
+if !exists(.level) {
+  msg = string!(.message)
+  if contains(msg, "ERROR") || contains(msg, "CRITICAL") || contains(msg, "error") {
+    .level = "error"
+  } else if contains(msg, "WARN") {
+    .level = "warning"
+  } else {
+    .level = "info"
+  }
+}
+
+# Masquage PII basique à la collecte (emails) — souveraineté des données
+.message = replace(string!(.message), r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', "<email-masqué>")
+
+.projet = "PROJET_OBSERVE"   # tag par projet, utile en multi-tenant
+'''
+
+# Marquage des événements métier candidats (heuristique V0 ;
+# en V1 c'est l'agent LLM qui apprend les patterns du projet)
+[transforms.business_events]
+type = "remap"
+inputs = ["normalize"]
+source = '''
+msg = downcase(string!(.message))
+if contains(msg, "created") || contains(msg, "créé") ||
+   contains(msg, "commande") || contains(msg, "order") ||
+   contains(msg, "facture") || contains(msg, "invoice") ||
+   contains(msg, "payment") || contains(msg, "paiement") {
+  .stream_type = "business"
+} else {
+  .stream_type = "technical"
+}
+'''
+
+# ---------- SINK : stockage ------------------------------------------
+
+[sinks.loki]
+type = "loki"
+inputs = ["business_events"]
+endpoint = "http://loki:3100"
+encoding.codec = "json"
+labels.projet = "{{ projet }}"
+labels.level = "{{ level }}"
+labels.stream_type = "{{ stream_type }}"

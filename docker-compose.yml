@@ -1,0 +1,103 @@
+# =====================================================================
+# VIGIE — Agent d'observabilité branchable (V0)
+# Stack : Vector (collecte) + Loki (logs) + Prometheus (métriques)
+#         + Grafana (dashboards) + Agent LLM (diagnostic conversationnel)
+#
+# Branchement sur un projet existant :
+#   1. Adapter les chemins de logs dans config/vector.toml (section [sources])
+#   2. ANTHROPIC_API_KEY dans .env
+#   3. docker compose up -d
+#   Aucune modification du code applicatif requise.
+# =====================================================================
+
+name: vigie
+
+services:
+
+  # --- Couche collecte : agnostique de la stack applicative -----------
+  vector:
+    image: timberio/vector:0.43.X-alpine
+    container_name: vigie-vector
+    restart: unless-stopped
+    volumes:
+      - ./config/vector.toml:/etc/vector/vector.toml:ro
+      # Points d'ancrage universels — adapter selon le projet observé :
+      - /var/log:/host/var/log:ro                      # logs système + serveur web
+      - /var/lib/docker/containers:/host/containers:ro  # logs conteneurs (si projet dockerisé)
+      # - /path/vers/projet/var/log:/host/app/log:ro   # logs applicatifs (Symfony, Laravel…)
+    environment:
+      - VECTOR_LOG=warn
+    depends_on:
+      - loki
+    networks: [vigie]
+
+  # --- Stockage logs ---------------------------------------------------
+  loki:
+    image: grafana/loki:3.3.0
+    container_name: vigie-loki
+    restart: unless-stopped
+    command: -config.file=/etc/loki/local-config.yaml
+    volumes:
+      - loki-data:/loki
+    networks: [vigie]
+
+  # --- Métriques système + scraping ------------------------------------
+  node-exporter:
+    image: prom/node-exporter:v1.8.2
+    container_name: vigie-node-exporter
+    restart: unless-stopped
+    pid: host
+    volumes:
+      - /:/host:ro,rslave
+    command: ['--path.rootfs=/host']
+    networks: [vigie]
+
+  prometheus:
+    image: prom/prometheus:v3.1.0
+    container_name: vigie-prometheus
+    restart: unless-stopped
+    volumes:
+      - ./config/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prom-data:/prometheus
+    networks: [vigie]
+
+  # --- Dashboards -------------------------------------------------------
+  grafana:
+    image: grafana/grafana:11.4.0
+    container_name: vigie-grafana
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-vigie-admin}
+      - GF_AUTH_ANONYMOUS_ENABLED=false
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./config/grafana-datasources.yml:/etc/grafana/provisioning/datasources/ds.yml:ro
+    networks: [vigie]
+
+  # --- L'agent LLM : diagnostic conversationnel + rapports --------------
+  agent:
+    build: ./agent
+    container_name: vigie-agent
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - LOKI_URL=http://loki:3100
+      - PROMETHEUS_URL=http://prometheus:9090
+      - MODEL_TRIAGE=claude-haiku-4-5-20251001   # classification / filtrage : modèle léger
+      - MODEL_DIAGNOSTIC=claude-sonnet-4-6        # analyse & corrélation : modèle fort
+    depends_on:
+      - loki
+      - prometheus
+    networks: [vigie]
+
+networks:
+  vigie:
+
+volumes:
+  loki-data:
+  prom-data:
+  grafana-data:

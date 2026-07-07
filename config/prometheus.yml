@@ -1,0 +1,14 @@
+# VIGIE — configuration Prometheus (V0)
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: 'node'
+    static_configs:
+      - targets: ['node-exporter:9100']
+
+  # Si l'application observée expose déjà /metrics (rare mais possible),
+  # décommenter et adapter — sinon, ignorer : la V0 reste zéro-code.
+  # - job_name: 'application'
+  #   static_configs:
+  #     - targets: ['host.docker.internal:8000']
