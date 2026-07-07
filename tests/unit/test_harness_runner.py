@@ -1,5 +1,7 @@
 import pytest
 
+from agent.db.models import Tenant
+from agent.db.session import get_session
 from agent.harness import runner
 
 
@@ -56,3 +58,33 @@ async def test_run_agent_real_path_no_result_message(monkeypatch):
 
     answer = await runner.run_agent("diagnostic", "question", tenant_id="acme", endpoint="ask")
     assert "Erreur" in answer
+
+
+@pytest.mark.asyncio
+async def test_run_agent_real_path_blocked_when_budget_exhausted(monkeypatch):
+    monkeypatch.setenv("VIGIE_MOCK_LLM", "0")
+
+    with get_session() as session:
+        session.add(
+            Tenant(id="acme", name="Acme", budget_llm_tokens=1000, tokens_used=1000)
+        )
+        session.commit()
+
+    async def fake_query(*, prompt, options=None, transport=None):
+        raise AssertionError("query() must not be called when budget is exhausted")
+        yield  # pragma: no cover - générateur factice, jamais atteint
+
+    def fake_build_diagnostic_options(tenant_id, system_prompt=None):
+        raise AssertionError(
+            "build_diagnostic_options() must not be called when budget is exhausted"
+        )
+
+    monkeypatch.setattr(runner, "query", fake_query)
+    monkeypatch.setattr(runner, "ResultMessage", FakeResultMessage)
+    monkeypatch.setitem(
+        runner._PRESET_BUILDERS, "diagnostic", fake_build_diagnostic_options
+    )
+
+    answer = await runner.run_agent("diagnostic", "question", tenant_id="acme", endpoint="ask")
+
+    assert "Budget" in answer

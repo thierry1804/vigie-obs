@@ -5,7 +5,7 @@ from claude_agent_sdk import ResultMessage, query
 from agent.config import MODEL_DIAGNOSTIC
 from agent.harness.options import build_diagnostic_options
 from agent.services.llm_client import _mock_enabled
-from agent.services.tokens import record_usage
+from agent.services.tokens import check_budget, record_usage
 
 MOCK_DIAGNOSTIC_ANSWER = (
     "Réponse mock VIGIE. FAITS : données simulées. HYPOTHÈSES : aucune conclusion réelle sans API."
@@ -26,6 +26,10 @@ async def run_agent(
     """Exécute un agent (preset donné) via le harness, ou renvoie une réponse fixture en mode mock."""
     if _mock_enabled():
         return MOCK_DIAGNOSTIC_ANSWER
+
+    ok, msg = check_budget(tenant_id)
+    if not ok:
+        return msg
 
     options = _PRESET_BUILDERS[preset](tenant_id, system_prompt=system_prompt)
 
