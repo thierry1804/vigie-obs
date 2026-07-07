@@ -1,0 +1,65 @@
+"""Fabriques de hooks SDK — garde-fous appliqués à chaque appel outil."""
+
+import re
+from typing import Any
+
+from agent.services.audit import audit
+from agent.services.tokens import check_budget
+
+HookCallback = Any  # claude_agent_sdk.types.HookCallback — alias pour lisibilité
+
+
+def make_budget_guard_hook(tenant_id: str) -> HookCallback:
+    """PreToolUse : refuse l'appel outil si le budget LLM du tenant est épuisé."""
+
+    async def _budget_guard_hook(input_data, tool_use_id, context):
+        ok, msg = check_budget(tenant_id)
+        if not ok:
+            return {
+                "hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "permissionDecision": "deny",
+                    "permissionDecisionReason": msg,
+                }
+            }
+        return {}
+
+    return _budget_guard_hook
+
+
+def make_tenant_scope_hook(tenant_id: str) -> HookCallback:
+    """PreToolUse : refuse toute requête LogQL/PromQL référençant un autre tenant_id."""
+
+    tenant_pattern = re.compile(r'tenant_id="([^"]+)"')
+
+    async def _tenant_scope_hook(input_data, tool_use_id, context):
+        tool_input = input_data.get("tool_input", {})
+        query_text = tool_input.get("logql") or tool_input.get("promql") or ""
+        match = tenant_pattern.search(query_text)
+        if match and match.group(1) != tenant_id:
+            return {
+                "hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "permissionDecision": "deny",
+                    "permissionDecisionReason": (
+                        f"Requête référence un tenant non autorisé: {match.group(1)}"
+                    ),
+                }
+            }
+        return {}
+
+    return _tenant_scope_hook
+
+
+def make_audit_hook(tenant_id: str) -> HookCallback:
+    """PostToolUse : journalise chaque appel outil dans la table audit_logs."""
+
+    async def _audit_hook(input_data, tool_use_id, context):
+        audit(
+            tenant_id,
+            "tool_call",
+            {"tool": input_data.get("tool_name"), "input": input_data.get("tool_input")},
+        )
+        return {}
+
+    return _audit_hook
