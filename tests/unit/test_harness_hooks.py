@@ -55,6 +55,14 @@ async def test_tenant_scope_denies_other_tenant():
 
 
 @pytest.mark.asyncio
+async def test_tenant_scope_denies_other_tenant_with_whitespace():
+    hook = make_tenant_scope_hook("acme")
+    output = await hook(_pre_tool_input({"logql": '{tenant_id = "beta",level="error"}'}), "tu1", {})
+    assert output["hookSpecificOutput"]["permissionDecision"] == "deny"
+    assert "beta" in output["hookSpecificOutput"]["permissionDecisionReason"]
+
+
+@pytest.mark.asyncio
 async def test_audit_hook_writes_entry():
     from agent.db.models import AuditLog
 

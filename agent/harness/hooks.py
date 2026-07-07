@@ -30,7 +30,7 @@ def make_budget_guard_hook(tenant_id: str) -> HookCallback:
 def make_tenant_scope_hook(tenant_id: str) -> HookCallback:
     """PreToolUse : refuse toute requête LogQL/PromQL référençant un autre tenant_id."""
 
-    tenant_pattern = re.compile(r'tenant_id="([^"]+)"')
+    tenant_pattern = re.compile(r'tenant_id\s*=\s*"([^"]+)"')
 
     async def _tenant_scope_hook(input_data, tool_use_id, context):
         tool_input = input_data.get("tool_input", {})
