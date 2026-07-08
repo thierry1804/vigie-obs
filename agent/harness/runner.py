@@ -13,7 +13,8 @@ from agent.services.tokens import check_budget, record_usage
 
 _MOCK_ANSWERS = {
     "diagnostic": (
-        "Réponse mock VIGIE. FAITS : données simulées. HYPOTHÈSES : aucune conclusion réelle sans API."
+        "Réponse mock VIGIE. FAITS : données simulées. "
+        "HYPOTHÈSES : aucune conclusion réelle sans API."
     ),
     "triage": '{"is_anomaly": true, "reason": "anomalie plausible (mock)"}',
     "taxonomy": (
