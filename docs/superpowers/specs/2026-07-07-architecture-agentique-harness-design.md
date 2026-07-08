@@ -89,6 +89,8 @@ PRESETS = {
 
 `discovery` utilise un serveur MCP **distinct** (`vigie-fs`, read-only filesystem/log-sampling) — jamais les mêmes outils que ceux qui touchent Loki/Prometheus, pour garantir que le scan reste strictement read-only (invariant produit existant).
 
+**Confirmé par spike réel (Phase 1, Task 2)** : en session non-interactive (le cas de VIGIE, service headless), un appel outil MCP est bloqué par défaut faute de permission. Chaque preset doit donc fixer `permission_mode="bypassPermissions"` — le contrôle d'accès réel reste assuré par les hooks (§3.2), pas par le système de permission interactif du CLI, qui n'a aucun sens sans opérateur humain.
+
 ### 3.2 `agent/harness/hooks.py`
 
 Remplace le code dupliqué dans chaque service :

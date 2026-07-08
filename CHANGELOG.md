@@ -1,5 +1,11 @@
 # Changelog VIGIE
 
+## [Unreleased]
+
+### Changed
+- L'agent diagnostic (`/ask`, alerting, `mcp/explain_anomaly`) délègue désormais au Claude Agent SDK via `agent/harness/` au lieu d'un client Anthropic maison. Comportement externe inchangé (mêmes endpoints, même mode mock `VIGIE_MOCK_LLM=1`). Corrige au passage un blocage de la boucle événements asyncio pendant les appels LLM.
+- L'image Docker de l'agent embarque désormais Node.js et le CLI `@anthropic-ai/claude-code`, requis par le nouveau harness.
+
 ## 2.0.0 — Plateforme (V2)
 
 - Serveur MCP (4 outils) + auth jetons par tenant

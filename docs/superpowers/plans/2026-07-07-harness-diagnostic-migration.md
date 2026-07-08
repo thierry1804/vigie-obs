@@ -18,9 +18,10 @@
 - Un hook `PreToolUse` bloque un appel outil en retournant `{"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": "..."}}` ; retourner `{}` laisse l'appel passer normalement.
 - `PreToolUseHookInput`/`PostToolUseHookInput` exposent `tool_name: str` et `tool_input: dict[str, Any]` (pas d'autres champs utiles ici).
 
-**Fait à confirmer en conditions réelles (Task 2, spike exécutable) — non vérifiable sans CLI installé + clé API réelle :**
-- La convention de nommage exacte des outils MCP in-process vus par le modèle (attendu : `mcp__<nom_serveur>__<nom_outil>`, ex. `mcp__vigie-obs__query_loki` — convention documentée de Claude Code, à confirmer une fois par un run réel avant de coder le `matcher` des hooks).
-- Les clés exactes du dict `ResultMessage.usage` (attendu : `input_tokens`/`output_tokens`, à confirmer une fois).
+**Faits confirmés par le spike réel (Task 2, exécuté) :**
+- Convention de nommage confirmée : `mcp__<nom_serveur>__<nom_outil>` (observé : `mcp__vigie-obs-spike__ping`).
+- `ResultMessage.usage` contient bien `input_tokens`/`output_tokens` (plus des clés supplémentaires : `cache_creation_input_tokens`, `cache_read_input_tokens`, `server_tool_use`, `service_tier`, `cache_creation`, `inference_geo`, `iterations`, `speed` — sans impact, `runner.py` lit uniquement les deux clés attendues via `.get()`).
+- **Découverte non anticipée par le design initial** : en session non-interactive (le cas de VIGIE, service backend sans opérateur humain pour répondre à une invite), un appel outil MCP est **bloqué par défaut** faute de permission — le hook `PreToolUse` se déclenche bien (nommage confirmé) mais l'outil n'est jamais exécuté, `ResultMessage.result` contient un message d'erreur d'autorisation au lieu du résultat. `ClaudeAgentOptions` doit donc fixer explicitivement `permission_mode="bypassPermissions"` pour l'agent diagnostic — le contrôle d'accès réel reste assuré par nos propres hooks (`budget_guard`, `tenant_scope`), pas par les invites interactives du CLI, qui n'ont aucun sens dans un service headless. Répercuté dans la Task 5 ci-dessous.
 
 ## Global Constraints
 
@@ -642,6 +643,16 @@ def test_build_diagnostic_options_has_pretooluse_and_posttooluse_hooks():
     assert "PostToolUse" in options.hooks
     pre_hooks = options.hooks["PreToolUse"][0].hooks
     assert len(pre_hooks) == 2
+
+
+def test_build_diagnostic_options_bypasses_interactive_permissions():
+    # VIGIE est un service headless : aucune invite interactive n'a de sens.
+    # Le contrôle d'accès réel est assuré par nos hooks (budget/tenant-scope),
+    # pas par le système de permission interactif du CLI. Confirmé nécessaire
+    # par le spike de la Task 2 (sans ce réglage, l'outil est bloqué par
+    # défaut en session non-interactive et n'est jamais exécuté).
+    options = build_diagnostic_options("acme")
+    assert options.permission_mode == "bypassPermissions"
 ```
 
 - [ ] **Step 2: Lancer les tests pour vérifier qu'ils échouent**
@@ -687,6 +698,10 @@ def build_diagnostic_options(
         system_prompt=system_prompt or DIAGNOSTIC_SYSTEM_PROMPT,
         mcp_servers={"vigie-obs": build_obs_mcp_server(tenant_id)},
         max_turns=MAX_TOOL_TURNS,
+        # Service headless : pas d'opérateur humain pour répondre aux invites
+        # interactives du CLI. Le contrôle d'accès réel est assuré par les
+        # hooks ci-dessous (budget, scoping tenant), pas par ce mode.
+        permission_mode="bypassPermissions",
         hooks={
             "PreToolUse": [
                 HookMatcher(
