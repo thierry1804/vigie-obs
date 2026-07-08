@@ -63,6 +63,31 @@ async def test_tenant_scope_denies_other_tenant_with_whitespace():
 
 
 @pytest.mark.asyncio
+async def test_tenant_scope_auto_scopes_query_without_tenant_id():
+    hook = make_tenant_scope_hook("acme")
+    output = await hook(_pre_tool_input({"logql": '{level="error"}'}), "tu1", {})
+    hook_output = output["hookSpecificOutput"]
+    assert hook_output["permissionDecision"] == "allow"
+    assert 'tenant_id="acme"' in hook_output["updatedInput"]["logql"]
+
+
+@pytest.mark.asyncio
+async def test_tenant_scope_auto_scopes_non_brace_query_without_tenant_id():
+    hook = make_tenant_scope_hook("acme")
+    output = await hook(_pre_tool_input({"logql": 'level="error"'}), "tu1", {})
+    hook_output = output["hookSpecificOutput"]
+    assert hook_output["permissionDecision"] == "allow"
+    assert 'tenant_id="acme"' in hook_output["updatedInput"]["logql"]
+
+
+@pytest.mark.asyncio
+async def test_tenant_scope_ignores_promql_only_input():
+    hook = make_tenant_scope_hook("acme")
+    output = await hook(_pre_tool_input({"promql": "up"}), "tu1", {})
+    assert output == {}
+
+
+@pytest.mark.asyncio
 async def test_audit_hook_writes_entry():
     from agent.db.models import AuditLog
 

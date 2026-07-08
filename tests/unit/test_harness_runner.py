@@ -6,9 +6,11 @@ from agent.harness import runner
 
 
 class FakeResultMessage:
-    def __init__(self, result, usage):
+    def __init__(self, result, usage, is_error=False, errors=None):
         self.result = result
         self.usage = usage
+        self.is_error = is_error
+        self.errors = errors
 
 
 @pytest.mark.asyncio
@@ -88,3 +90,49 @@ async def test_run_agent_real_path_blocked_when_budget_exhausted(monkeypatch):
     answer = await runner.run_agent("diagnostic", "question", tenant_id="acme", endpoint="ask")
 
     assert "Budget" in answer
+
+
+@pytest.mark.asyncio
+async def test_run_agent_real_path_returns_error_on_exception(monkeypatch):
+    monkeypatch.setenv("VIGIE_MOCK_LLM", "0")
+
+    async def fake_query(*, prompt, options=None, transport=None):
+        raise RuntimeError("CLI introuvable")
+        yield  # pragma: no cover - générateur factice, jamais atteint
+
+    monkeypatch.setattr(runner, "query", fake_query)
+    monkeypatch.setattr(runner, "ResultMessage", FakeResultMessage)
+
+    answer = await runner.run_agent("diagnostic", "question", tenant_id="acme", endpoint="ask")
+
+    assert "Erreur" in answer
+    assert "CLI introuvable" in answer
+
+
+@pytest.mark.asyncio
+async def test_run_agent_real_path_returns_error_when_result_message_is_error(monkeypatch):
+    monkeypatch.setenv("VIGIE_MOCK_LLM", "0")
+
+    async def fake_query(*, prompt, options=None, transport=None):
+        yield FakeResultMessage(
+            result="",
+            usage={"input_tokens": 10, "output_tokens": 0},
+            is_error=True,
+            errors=["overloaded_error"],
+        )
+
+    recorded = []
+
+    def fake_record_usage(tenant_id, endpoint, model, input_tokens, output_tokens):
+        recorded.append((tenant_id, endpoint, model, input_tokens, output_tokens))
+
+    monkeypatch.setattr(runner, "query", fake_query)
+    monkeypatch.setattr(runner, "ResultMessage", FakeResultMessage)
+    monkeypatch.setattr(runner, "record_usage", fake_record_usage)
+
+    answer = await runner.run_agent("diagnostic", "question", tenant_id="acme", endpoint="ask")
+
+    assert "Erreur" in answer
+    assert "overloaded_error" in answer
+    # L'usage doit tout de même être enregistré : le CLI a consommé des tokens.
+    assert recorded == [("acme", "ask", "claude-sonnet-4-6", 10, 0)]

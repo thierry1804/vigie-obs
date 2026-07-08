@@ -34,9 +34,12 @@ async def run_agent(
     options = _PRESET_BUILDERS[preset](tenant_id, system_prompt=system_prompt)
 
     result_message: ResultMessage | None = None
-    async for message in query(prompt=user_message, options=options):
-        if isinstance(message, ResultMessage):
-            result_message = message
+    try:
+        async for message in query(prompt=user_message, options=options):
+            if isinstance(message, ResultMessage):
+                result_message = message
+    except Exception as e:
+        return f"Erreur harness agentique : {e}"
 
     if result_message is None:
         return "Erreur : aucune réponse reçue du harness agentique."
@@ -49,4 +52,9 @@ async def run_agent(
         usage.get("input_tokens", 0),
         usage.get("output_tokens", 0),
     )
+
+    if result_message.is_error:
+        details = result_message.errors or result_message.result or "échec sans détail"
+        return f"Erreur harness agentique : {details}"
+
     return result_message.result or ""

@@ -28,14 +28,21 @@ def make_budget_guard_hook(tenant_id: str) -> HookCallback:
 
 
 def make_tenant_scope_hook(tenant_id: str) -> HookCallback:
-    """PreToolUse : refuse toute requête LogQL/PromQL référençant un autre tenant_id."""
+    """PreToolUse : verrouille toute requête LogQL sur le tenant courant.
+
+    PromQL n'est pas concerné : Prometheus n'expose ici que des métriques hôte
+    globales (CPU, disque, ...) sans notion de tenant à faire respecter.
+    """
 
     tenant_pattern = re.compile(r'tenant_id\s*=\s*"([^"]+)"')
 
     async def _tenant_scope_hook(input_data, tool_use_id, context):
         tool_input = input_data.get("tool_input", {})
-        query_text = tool_input.get("logql") or tool_input.get("promql") or ""
-        match = tenant_pattern.search(query_text)
+        logql = tool_input.get("logql")
+        if logql is None:
+            return {}
+
+        match = tenant_pattern.search(logql)
         if match and match.group(1) != tenant_id:
             return {
                 "hookSpecificOutput": {
@@ -46,6 +53,26 @@ def make_tenant_scope_hook(tenant_id: str) -> HookCallback:
                     ),
                 }
             }
+
+        if match is None:
+            # Aucun tenant_id explicite : au lieu de refuser (ce qui rendrait
+            # l'outil inutilisable dès que le modèle oublie le filtre), on
+            # injecte le scope tenant correct de façon transparente. Ferme la
+            # fuite laissée ouverte par agent/tools/loki.py, qui ne scope pas
+            # les requêtes commençant déjà par "{" (ex: '{level="error"}').
+            scoped_logql = (
+                logql[:1] + f'tenant_id="{tenant_id}",' + logql[1:]
+                if logql.startswith("{")
+                else f'{{tenant_id="{tenant_id}"}} ' + logql
+            )
+            return {
+                "hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "permissionDecision": "allow",
+                    "updatedInput": {**tool_input, "logql": scoped_logql},
+                }
+            }
+
         return {}
 
     return _tenant_scope_hook
