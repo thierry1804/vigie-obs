@@ -136,3 +136,17 @@ async def test_run_agent_real_path_returns_error_when_result_message_is_error(mo
     assert "overloaded_error" in answer
     # L'usage doit tout de même être enregistré : le CLI a consommé des tokens.
     assert recorded == [("acme", "ask", "claude-sonnet-4-6", 10, 0)]
+
+
+@pytest.mark.asyncio
+async def test_run_agent_mock_triage_returns_json(monkeypatch):
+    monkeypatch.setenv("VIGIE_MOCK_LLM", "1")
+    answer = await runner.run_agent("triage", "contexte", tenant_id="acme", endpoint="triage")
+    assert '"is_anomaly"' in answer
+
+
+@pytest.mark.asyncio
+async def test_run_agent_mock_taxonomy_returns_yaml(monkeypatch):
+    monkeypatch.setenv("VIGIE_MOCK_LLM", "1")
+    answer = await runner.run_agent("taxonomy", "explore", tenant_id="acme", endpoint="taxonomy")
+    assert "events:" in answer
