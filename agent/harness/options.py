@@ -2,8 +2,13 @@
 
 from claude_agent_sdk import ClaudeAgentOptions, HookMatcher
 
-from agent.config import MAX_TOOL_TURNS, MODEL_DIAGNOSTIC
-from agent.harness.hooks import make_audit_hook, make_budget_guard_hook, make_tenant_scope_hook
+from agent.config import MAX_TOOL_TURNS, MODEL_DIAGNOSTIC, MODEL_TRIAGE
+from agent.harness.hooks import (
+    anonymize_hook,
+    make_audit_hook,
+    make_budget_guard_hook,
+    make_tenant_scope_hook,
+)
 from agent.tools.mcp_server import build_obs_mcp_server
 
 DIAGNOSTIC_SYSTEM_PROMPT = """Tu es VIGIE, un agent d'observabilité branché sur un projet en production.
@@ -20,7 +25,24 @@ Règles :
 - Réponds en français, de façon concise et actionnable.
 - Pour les événements métier, exploite stream_type="business" et business_event_type."""
 
-# Convention de nommage confirmée par le spike (Task 2) : mcp__<serveur>__<outil>
+TRIAGE_PROMPT = """Qualifie cette alerte observabilité.
+Réponds en JSON: {"is_anomaly": bool, "reason": "..."}
+is_anomaly=false si bruit connu (healthcheck, redémarrage planifié, pic attendu)."""
+
+TAXONOMY_SYSTEM_PROMPT = """Tu es un expert observabilité métier.
+Ta tâche : proposer une taxonomie d'événements métier à partir des logs applicatifs.
+
+Méthode :
+1. Interroge l'outil query_loki (stream_type="business") pour échantillonner les logs métier
+   sur la fenêtre demandée.
+2. Si les résultats sont insuffisants ou ambigus, affine ta requête (autre fenêtre, autre filtre).
+3. Propose une taxonomie YAML, format : events: [{name, patterns: [regex ou mots-clés], description}]
+
+Règles :
+- Ne conclus jamais sans avoir interrogé query_loki au moins une fois.
+- Réponds uniquement en YAML valide, sans texte d'accompagnement."""
+
+# Convention de nommage confirmée par le spike (Phase 1, Task 2) : mcp__<serveur>__<outil>
 _OBS_TOOL_MATCHER = "mcp__vigie-obs__.*"
 
 
@@ -45,7 +67,48 @@ def build_diagnostic_options(
                 )
             ],
             "PostToolUse": [
-                HookMatcher(matcher=_OBS_TOOL_MATCHER, hooks=[make_audit_hook(tenant_id)])
+                HookMatcher(
+                    matcher=_OBS_TOOL_MATCHER,
+                    hooks=[make_audit_hook(tenant_id), anonymize_hook],
+                )
+            ],
+        },
+    )
+
+
+def build_triage_options(
+    tenant_id: str, system_prompt: str | None = None
+) -> ClaudeAgentOptions:
+    """Preset de l'agent triage — classification single-shot bruit/anomalie, aucun outil."""
+    return ClaudeAgentOptions(
+        model=MODEL_TRIAGE,
+        system_prompt=system_prompt or TRIAGE_PROMPT,
+        max_turns=1,
+    )
+
+
+def build_taxonomy_options(
+    tenant_id: str, system_prompt: str | None = None
+) -> ClaudeAgentOptions:
+    """Preset de l'agent taxonomie — explore query_loki lui-même, propose une taxonomie YAML."""
+    return ClaudeAgentOptions(
+        model=MODEL_DIAGNOSTIC,
+        system_prompt=system_prompt or TAXONOMY_SYSTEM_PROMPT,
+        mcp_servers={"vigie-obs": build_obs_mcp_server(tenant_id)},
+        max_turns=3,
+        permission_mode="bypassPermissions",
+        hooks={
+            "PreToolUse": [
+                HookMatcher(
+                    matcher=_OBS_TOOL_MATCHER,
+                    hooks=[make_budget_guard_hook(tenant_id), make_tenant_scope_hook(tenant_id)],
+                )
+            ],
+            "PostToolUse": [
+                HookMatcher(
+                    matcher=_OBS_TOOL_MATCHER,
+                    hooks=[make_audit_hook(tenant_id), anonymize_hook],
+                )
             ],
         },
     )
