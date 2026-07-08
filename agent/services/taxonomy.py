@@ -19,6 +19,8 @@ async def propose_taxonomy(tenant_id: str, days: int = 7) -> dict:
         data = yaml.safe_load(text)
     except yaml.YAMLError:
         data = {"events": [], "raw": text}
+    if not isinstance(data, dict) or "events" not in data:
+        data = {"events": [], "raw": text}
     path = TAXONOMY_DIR / f"{tenant_id}.proposed.yaml"
     TAXONOMY_DIR.mkdir(parents=True, exist_ok=True)
     path.write_text(yaml.dump(data, allow_unicode=True), encoding="utf-8")
