@@ -90,3 +90,39 @@ def make_audit_hook(tenant_id: str) -> HookCallback:
         return {}
 
     return _audit_hook
+
+
+_EMAIL_RE = re.compile(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}")
+
+
+async def anonymize_hook(input_data, tool_use_id, context):
+    """PostToolUse : rédige les emails dans tout résultat d'outil MCP.
+
+    tool_response et updatedMCPToolOutput partagent la même forme (une liste
+    de blocs {"type": "text", "text": ...}), jamais enveloppée dans un dict
+    {"content": [...]} — confirmé par un run réel : passer un dict casse
+    l'appel d'outil côté CLI.
+    """
+    tool_response = input_data.get("tool_response")
+    if not isinstance(tool_response, list):
+        return {}
+
+    changed = False
+    updated_blocks = []
+    for block in tool_response:
+        text = block.get("text", "") if isinstance(block, dict) else ""
+        if isinstance(block, dict) and block.get("type") == "text" and _EMAIL_RE.search(text):
+            changed = True
+            updated_blocks.append({**block, "text": _EMAIL_RE.sub("<email>", text)})
+        else:
+            updated_blocks.append(block)
+
+    if not changed:
+        return {}
+
+    return {
+        "hookSpecificOutput": {
+            "hookEventName": "PostToolUse",
+            "updatedMCPToolOutput": updated_blocks,
+        }
+    }
