@@ -1,55 +1,20 @@
 """Service taxonomie métier apprise."""
 
-import re
 from pathlib import Path
 
 import yaml
 
-from agent.services.llm_client import create_message
-from agent.services.tokens import record_usage
-from agent.tools.loki import run_query_loki
+from agent.harness.runner import run_agent
 
 TAXONOMY_DIR = Path(__file__).resolve().parents[2] / "config" / "taxonomies"
 
 
-async def sample_logs(tenant_id: str, days: int = 7, limit: int = 200) -> list[str]:
-    result = await run_query_loki(
-        logql='{stream_type="business"}',
-        hours_back=days * 24,
-        limit=limit,
-        tenant_id=tenant_id,
-    )
-    lines = [ln for ln in result.split("\n") if ln.strip()]
-    seen = set()
-    unique = []
-    for ln in lines:
-        key = ln[:120]
-        if key not in seen:
-            seen.add(key)
-            unique.append(ln)
-    return unique[:limit]
-
-
-def anonymize(lines: list[str]) -> list[str]:
-    email_re = re.compile(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}")
-    return [email_re.sub("<email>", ln) for ln in lines]
-
-
 async def propose_taxonomy(tenant_id: str, days: int = 7) -> dict:
-    samples = anonymize(await sample_logs(tenant_id, days=days))
     prompt = (
-        "Propose une taxonomie d'événements métier YAML pour ce projet.\n"
-        "Format: events: [{name, patterns: [regex ou mots-clés], description}]\n\n"
-        + "\n".join(samples[:50])
+        f'Explore les logs métier (stream_type="business") des {days} derniers jours '
+        f"(hours_back={days * 24}) via l'outil query_loki, puis propose une taxonomie."
     )
-    response = create_message(
-        model="claude-sonnet-4-6",
-        max_tokens=2000,
-        system="Expert observabilité métier. Réponds en YAML valide uniquement.",
-        messages=[{"role": "user", "content": prompt}],
-    )
-    record_usage(tenant_id, "taxonomy", "claude-sonnet-4-6", response.usage.input_tokens, response.usage.output_tokens)
-    text = "".join(b.text for b in response.content if b.type == "text")
+    text = await run_agent("taxonomy", prompt, tenant_id=tenant_id, endpoint="taxonomy")
     try:
         data = yaml.safe_load(text)
     except yaml.YAMLError:
