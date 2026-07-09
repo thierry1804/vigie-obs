@@ -8,7 +8,7 @@ from fastapi import FastAPI
 
 from agent.config import ALERT_INTERVAL_MINUTES, APP_VERSION, DATA_DIR
 from agent.db.session import init_db
-from agent.mcp.server import router as mcp_router
+from agent.mcp.server import mcp_app, mcp_server
 from agent.routes.alerts import router as alerts_router
 from agent.routes.ask import router as ask_router
 from agent.routes.discover import router as discover_router
@@ -43,7 +43,8 @@ async def lifespan(app: FastAPI):
     )
     scheduler.start()
     logger.info("VIGIE agent v%s démarré", APP_VERSION)
-    yield
+    async with mcp_server.session_manager.run():
+        yield
     scheduler.shutdown()
 
 
@@ -55,4 +56,4 @@ app.include_router(report_router)
 app.include_router(metrics_router)
 app.include_router(discover_router)
 app.include_router(alerts_router)
-app.include_router(mcp_router)
+app.mount("/mcp", mcp_app)
