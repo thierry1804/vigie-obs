@@ -93,7 +93,7 @@ async def process_alert(
     if _recent_alert(tenant_id, sig, rule.cooldown_minutes):
         return None
 
-    is_anomaly, reason = triage_alert(tenant_id, sig, context)
+    is_anomaly, reason = await triage_alert(tenant_id, sig, context)
     if not is_anomaly:
         audit(tenant_id, "alert_suppressed", {"rule": rule.name, "reason": reason})
         return None

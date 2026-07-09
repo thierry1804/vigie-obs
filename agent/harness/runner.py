@@ -1,18 +1,34 @@
-"""Point d'entrée unique vers le LLM pour l'agent diagnostic — harness Claude Agent SDK."""
+"""Point d'entrée unique vers le LLM — harness Claude Agent SDK."""
 
 from claude_agent_sdk import ResultMessage, query
 
 from agent.config import MODEL_DIAGNOSTIC
-from agent.harness.options import build_diagnostic_options
+from agent.harness.options import (
+    build_diagnostic_options,
+    build_taxonomy_options,
+    build_triage_options,
+)
 from agent.services.llm_client import _mock_enabled
 from agent.services.tokens import check_budget, record_usage
 
-MOCK_DIAGNOSTIC_ANSWER = (
-    "Réponse mock VIGIE. FAITS : données simulées. HYPOTHÈSES : aucune conclusion réelle sans API."
-)
+_MOCK_ANSWERS = {
+    "diagnostic": (
+        "Réponse mock VIGIE. FAITS : données simulées. "
+        "HYPOTHÈSES : aucune conclusion réelle sans API."
+    ),
+    "triage": '{"is_anomaly": true, "reason": "anomalie plausible (mock)"}',
+    "taxonomy": (
+        "events:\n"
+        "  - name: order_created\n"
+        "    patterns: ['commande créée', 'order created']\n"
+        "    description: Commande créée (mock)\n"
+    ),
+}
 
 _PRESET_BUILDERS = {
     "diagnostic": build_diagnostic_options,
+    "triage": build_triage_options,
+    "taxonomy": build_taxonomy_options,
 }
 
 
@@ -25,7 +41,7 @@ async def run_agent(
 ) -> str:
     """Exécute un agent (preset donné) via le harness, ou renvoie une réponse fixture en mode mock."""
     if _mock_enabled():
-        return MOCK_DIAGNOSTIC_ANSWER
+        return _MOCK_ANSWERS[preset]
 
     ok, msg = check_budget(tenant_id)
     if not ok:
