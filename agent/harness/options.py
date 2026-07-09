@@ -1,6 +1,6 @@
 """Presets ClaudeAgentOptions par agent spécialisé VIGIE."""
 
-from claude_agent_sdk import ClaudeAgentOptions, HookMatcher
+from claude_agent_sdk import AgentDefinition, ClaudeAgentOptions, HookMatcher
 
 from agent.config import MAX_TOOL_TURNS, MODEL_DIAGNOSTIC, MODEL_TRIAGE
 from agent.harness.hooks import (
@@ -150,6 +150,106 @@ def build_discovery_options(
                     matcher=_FS_TOOL_MATCHER,
                     hooks=[make_audit_hook(tenant_id), anonymize_hook],
                 )
+            ],
+        },
+    )
+
+
+BUSINESS_ANALYST_SYSTEM_PROMPT = """Tu es un analyste métier VIGIE, sous-agent invoqué pour des
+questions sur les événements métier.
+
+Tu as accès à deux outils :
+- query_taxonomy : retourne la taxonomie d'événements métier active (noms, descriptions, patterns).
+- query_business_kpis : retourne un comptage d'occurrences par type d'événement métier sur une
+  fenêtre récente.
+
+Méthode :
+1. Consulte query_taxonomy pour connaître les événements métier définis pour ce tenant.
+2. Consulte query_business_kpis si la question porte sur des volumes ou des tendances.
+
+Règles :
+- Réponds en français, de façon concise et actionnable.
+- Si aucune taxonomie n'existe pour ce tenant, dis-le clairement plutôt que d'inventer des
+  événements."""
+
+ASK_SYSTEM_PROMPT = """Tu es le routeur VIGIE. Tu ne réponds jamais directement à une question
+toi-même.
+
+Pour chaque question reçue, délègue-la via l'outil Agent à l'un des deux agents disponibles :
+- diagnostic-investigator : questions techniques/infrastructure (erreurs, latence, disponibilité,
+  logs, métriques, traces).
+- business-analyst : questions métier (KPIs, événements métier, taxonomie).
+
+Si la question mélange les deux registres, délègue d'abord à diagnostic-investigator, puis à
+business-analyst si un éclairage métier est encore nécessaire, et synthétise les deux réponses.
+
+Règle stricte : n'appelle jamais un outil toi-même, ton seul rôle est de choisir le ou les bons
+agents et de leur transmettre la question."""
+
+_BIZ_TOOL_MATCHER = "mcp__vigie-biz__.*"
+
+_ASK_OBS_TOOL_NAMES = [
+    "mcp__vigie-obs__query_loki",
+    "mcp__vigie-obs__query_prometheus",
+    "mcp__vigie-obs__query_traces",
+]
+_ASK_BIZ_TOOL_NAMES = [
+    "mcp__vigie-biz__query_business_kpis",
+    "mcp__vigie-biz__query_taxonomy",
+]
+
+
+def build_ask_options(tenant_id: str, system_prompt: str | None = None) -> ClaudeAgentOptions:
+    """Preset de l'agent orchestrateur ask — routeur pur, délègue toujours à un sous-agent."""
+    # Late import to avoid circular dependency: taxonomy.py -> runner.py -> options.py
+    from agent.tools.biz_server import build_biz_mcp_server
+
+    return ClaudeAgentOptions(
+        model=MODEL_DIAGNOSTIC,
+        system_prompt=system_prompt or ASK_SYSTEM_PROMPT,
+        mcp_servers={
+            "vigie-obs": build_obs_mcp_server(tenant_id),
+            "vigie-biz": build_biz_mcp_server(tenant_id),
+        },
+        # Agent racine : jamais d'appel direct, uniquement délégation via l'outil Agent.
+        disallowed_tools=_ASK_OBS_TOOL_NAMES + _ASK_BIZ_TOOL_NAMES,
+        agents={
+            "diagnostic-investigator": AgentDefinition(
+                description="Investigation technique (PEV) sur logs/métriques/traces.",
+                prompt=DIAGNOSTIC_SYSTEM_PROMPT,
+                tools=_ASK_OBS_TOOL_NAMES,
+                maxTurns=MAX_TOOL_TURNS,
+            ),
+            "business-analyst": AgentDefinition(
+                description="Analyse KPIs/taxonomie métier, léger, pas de boucle PEV.",
+                prompt=BUSINESS_ANALYST_SYSTEM_PROMPT,
+                tools=_ASK_BIZ_TOOL_NAMES,
+                model=MODEL_TRIAGE,
+                maxTurns=3,
+            ),
+        },
+        max_turns=MAX_TOOL_TURNS,
+        permission_mode="bypassPermissions",
+        hooks={
+            "PreToolUse": [
+                HookMatcher(
+                    matcher=_OBS_TOOL_MATCHER,
+                    hooks=[make_budget_guard_hook(tenant_id), make_tenant_scope_hook(tenant_id)],
+                ),
+                HookMatcher(
+                    matcher=_BIZ_TOOL_MATCHER,
+                    hooks=[make_budget_guard_hook(tenant_id)],
+                ),
+            ],
+            "PostToolUse": [
+                HookMatcher(
+                    matcher=_OBS_TOOL_MATCHER,
+                    hooks=[make_audit_hook(tenant_id), anonymize_hook],
+                ),
+                HookMatcher(
+                    matcher=_BIZ_TOOL_MATCHER,
+                    hooks=[make_audit_hook(tenant_id), anonymize_hook],
+                ),
             ],
         },
     )
