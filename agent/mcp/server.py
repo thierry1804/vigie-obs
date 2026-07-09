@@ -2,7 +2,6 @@
 
 from mcp.server.auth.settings import AuthSettings
 from mcp.server.fastmcp import FastMCP
-from starlette.applications import Starlette
 
 from agent.mcp.auth import VigieTokenVerifier
 from agent.mcp.tools import register_tools
@@ -14,6 +13,13 @@ _ISSUER_URL = "http://vigie.local/"
 
 
 def build_mcp_server() -> FastMCP:
+    """Construit une instance FastMCP fraîche — jamais de singleton module-level.
+
+    StreamableHTTPSessionManager (créé en interne par streamable_http_app()) ne peut
+    être démarré qu'une seule fois par instance ; un singleton casserait dès le
+    deuxième cycle de lifespan (chaque `with TestClient(app)` en recrée un). Voir
+    agent/main.py::lifespan().
+    """
     server = FastMCP(
         name="vigie",
         token_verifier=VigieTokenVerifier(),
@@ -22,7 +28,3 @@ def build_mcp_server() -> FastMCP:
     )
     register_tools(server)
     return server
-
-
-mcp_server = build_mcp_server()
-mcp_app: Starlette = mcp_server.streamable_http_app()

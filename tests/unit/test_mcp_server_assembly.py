@@ -1,11 +1,12 @@
 import pytest
 from starlette.applications import Starlette
 
-from agent.mcp.server import build_mcp_server, mcp_app
+from agent.mcp.server import build_mcp_server
 
 
-def test_mcp_app_is_starlette_instance():
-    assert isinstance(mcp_app, Starlette)
+def test_build_mcp_server_returns_starlette_app():
+    server = build_mcp_server()
+    assert isinstance(server.streamable_http_app(), Starlette)
 
 
 @pytest.mark.asyncio

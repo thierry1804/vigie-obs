@@ -8,7 +8,7 @@ from fastapi import FastAPI
 
 from agent.config import ALERT_INTERVAL_MINUTES, APP_VERSION, DATA_DIR
 from agent.db.session import init_db
-from agent.mcp.server import mcp_app, mcp_server
+from agent.mcp.server import build_mcp_server
 from agent.routes.alerts import router as alerts_router
 from agent.routes.ask import router as ask_router
 from agent.routes.discover import router as discover_router
@@ -31,6 +31,10 @@ async def _alert_job():
         logger.exception("Erreur cycle alerting: %s", e)
 
 
+async def _mcp_asgi(scope, receive, send):
+    await scope["app"].state.mcp_app(scope, receive, send)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -43,6 +47,8 @@ async def lifespan(app: FastAPI):
     )
     scheduler.start()
     logger.info("VIGIE agent v%s démarré", APP_VERSION)
+    mcp_server = build_mcp_server()
+    app.state.mcp_app = mcp_server.streamable_http_app()
     async with mcp_server.session_manager.run():
         yield
     scheduler.shutdown()
@@ -56,4 +62,4 @@ app.include_router(report_router)
 app.include_router(metrics_router)
 app.include_router(discover_router)
 app.include_router(alerts_router)
-app.mount("/mcp", mcp_app)
+app.mount("/mcp", _mcp_asgi)
