@@ -182,3 +182,33 @@ async def test_run_agent_passes_preset_kwargs_to_builder(monkeypatch):
     )
 
     assert captured == {"report": sentinel}
+
+
+@pytest.mark.asyncio
+async def test_run_agent_mock_ask_returns_text(monkeypatch):
+    monkeypatch.setenv("VIGIE_MOCK_LLM", "1")
+    answer = await runner.run_agent("ask", "question", tenant_id="acme", endpoint="ask")
+    assert "mock" in answer.lower()
+
+
+@pytest.mark.asyncio
+async def test_run_agent_ask_preset_dispatches_to_build_ask_options(monkeypatch):
+    monkeypatch.setenv("VIGIE_MOCK_LLM", "0")
+
+    captured = {}
+
+    def fake_build_ask_options(tenant_id, system_prompt=None):
+        captured["tenant_id"] = tenant_id
+        return runner.build_triage_options(tenant_id, system_prompt=system_prompt)
+
+    async def fake_query(*, prompt, options=None, transport=None):
+        yield FakeResultMessage(result="ok", usage={"input_tokens": 1, "output_tokens": 1})
+
+    monkeypatch.setattr(runner, "query", fake_query)
+    monkeypatch.setattr(runner, "ResultMessage", FakeResultMessage)
+    monkeypatch.setitem(runner._PRESET_BUILDERS, "ask", fake_build_ask_options)
+
+    answer = await runner.run_agent("ask", "question", tenant_id="acme", endpoint="ask")
+
+    assert answer == "ok"
+    assert captured["tenant_id"] == "acme"

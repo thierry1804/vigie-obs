@@ -4,6 +4,7 @@ from claude_agent_sdk import ResultMessage, query
 
 from agent.config import MODEL_DIAGNOSTIC
 from agent.harness.options import (
+    build_ask_options,
     build_diagnostic_options,
     build_discovery_options,
     build_taxonomy_options,
@@ -25,6 +26,7 @@ _MOCK_ANSWERS = {
         "    description: Commande créée (mock)\n"
     ),
     "discovery": "Classification terminée (mock).",
+    "ask": "Réponse mock VIGIE (routeur). Délégation simulée (mock).",
 }
 
 _PRESET_BUILDERS = {
@@ -32,6 +34,7 @@ _PRESET_BUILDERS = {
     "triage": build_triage_options,
     "taxonomy": build_taxonomy_options,
     "discovery": build_discovery_options,
+    "ask": build_ask_options,
 }
 
 
