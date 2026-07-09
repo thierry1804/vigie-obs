@@ -156,16 +156,25 @@ Logique métier de chaque outil **inchangée à l'identique** par rapport à l'a
 
 ## 5. Lifespan (`agent/main.py`)
 
-Le `StreamableHTTPSessionManager` exposé par l'app MCP a son propre cycle de vie asynccontextmanager, à intégrer dans le `lifespan` existant (à côté de `init_db()`/APScheduler) :
+**Erratum (découvert pendant l'implémentation de la Phase 4, Task 3)** : `StreamableHTTPSessionManager.run()` ne peut être entré qu'**une seule fois par instance**, jamais réutilisable après sortie (confirmé par lecture directe de `mcp/server/streamable_http_manager.py`, docstring de `run()`). Un `mcp_app`/`mcp_server` construit une fois au niveau module — ce que ce paragraphe supposait initialement — casse dès qu'un deuxième cycle ASGI `lifespan` a lieu dans le même process, ce qui arrive constamment en test (`with TestClient(app) as c:` par fonction de test). Correction retenue : `build_mcp_server()` reste une factory pure, appelée **à l'intérieur** de `lifespan()` — une instance fraîche par cycle, sans impact en production (un seul cycle de toute façon). Le montage Starlette ne peut pas référencer statiquement l'app ainsi reconstruite (un `Mount` est fixé à la construction d'`app`, avant que `lifespan` ne tourne) : un petit wrapper ASGI monté une seule fois délègue à `scope["app"].state.mcp_app`, peuplé fraîchement par chaque cycle avant le `yield` (mécanisme standard Starlette — `scope["app"]` est injecté par l'app racine dans tout appel imbriqué, y compris les sous-apps montées). Détail exact dans `docs/superpowers/plans/2026-07-09-harness-phase4-mcp-external.md`, Task 3.
 
 ```python
+async def _mcp_asgi(scope, receive, send):
+    await scope["app"].state.mcp_app(scope, receive, send)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
-    async with mcp_app.session_manager.run():  # nouveau — nom d'attribut à vérifier contre le SDK réel
-        scheduler.start()
+    scheduler.start()
+    mcp_server = build_mcp_server()
+    app.state.mcp_app = mcp_server.streamable_http_app()
+    async with mcp_server.session_manager.run():
         yield
-        scheduler.shutdown()
+    scheduler.shutdown()
+
+
+app.mount("/mcp", _mcp_asgi)  # wrapper fixe, construit une seule fois avec app
 ```
 
 ## 6. Gestion d'erreurs

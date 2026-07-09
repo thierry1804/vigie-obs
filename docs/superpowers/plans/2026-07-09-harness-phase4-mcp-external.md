@@ -4,7 +4,7 @@
 
 **Goal:** Remplacer `agent/mcp/server.py` (REST FastAPI qui imite des noms d'outils MCP) par un vrai serveur MCP protocolaire — SDK Python officiel `mcp`, API `FastMCP`, transport Streamable HTTP, auth par `TokenVerifier` custom réutilisant `Tenant.mcp_token`. Remplacement complet, pas de double-stack.
 
-**Architecture:** `agent/mcp/auth.py` (vérification de token), `agent/mcp/tools.py` (logique des 4 outils, indépendante du transport), `agent/mcp/server.py` (assemblage `FastMCP` + montage Starlette), montés dans `agent/main.py` via `app.mount("/mcp", mcp_app)` avec intégration du cycle de vie du `StreamableHTTPSessionManager` dans le `lifespan` existant.
+**Architecture:** `agent/mcp/auth.py` (vérification de token), `agent/mcp/tools.py` (logique des 4 outils, indépendante du transport), `agent/mcp/server.py::build_mcp_server()` (factory `FastMCP`, jamais de singleton — voir erratum ci-dessous), instanciée fraîchement à chaque cycle de `lifespan` dans `agent/main.py` et exposée aux requêtes via un petit wrapper ASGI monté une fois sur `app.mount("/mcp", _mcp_asgi)`.
 
 **Tech Stack:** Python 3.12+, paquet `mcp` 1.28.1 (déjà installé en transitif via `claude-agent-sdk`, ajouté en dépendance directe), FastAPI/Starlette, `uvicorn` (déjà une dépendance, réutilisé pour les tests bout-en-bout), pytest (`asyncio_mode = "auto"`), `pytest-httpx`.
 
@@ -21,6 +21,7 @@ Faits SDK confirmés par lecture directe du paquet `mcp` 1.28.1 installé (`.ven
 - `streamable_http_app()` retourne un `Starlette` dont le `lifespan` interne (`lambda app: self.session_manager.run()`) **ne se déclenche que si cette app tourne comme app racine** — un `Mount` Starlette ne propage pas automatiquement le lifespan d'une sous-app. `mcp_server.session_manager.run()` (context manager async, propriété publique `FastMCP.session_manager`, `mcp/server/fastmcp/server.py:261`) doit donc être entré explicitement dans le `lifespan` d'`agent/main.py`.
 - Le SDK n'offre **aucun raccourci officiel** pour tester le transport Streamable HTTP + le pipeline d'auth sans un vrai port TCP (`mcp.shared.memory.create_connected_server_and_client_session` court-circuite tout ça). Les tests de la Task 4 lancent donc un vrai `uvicorn.Server` — comme tâche asyncio dans la boucle du test (pas besoin d'un thread OS séparé, `uvicorn.Server.serve()` est déjà une coroutine).
 - Le mécanisme d'auth exact (URL de montage effective après `streamable_http_path="/"` + `app.mount("/mcp", ...)`, forme exacte de l'erreur sur token invalide) est **empirique par construction** — la Task 4 est un point de vérification réel, pas une supposition. Si le premier essai de connexion échoue avec une 404 ou une erreur de forme inattendue, ajuster `streamable_http_path`/l'URL utilisée par le test et documenter ce qui a été trouvé dans le rapport, plutôt que de deviner à l'avance.
+- **Erratum découvert pendant l'implémentation de la Task 3, confirmé par lecture directe de `mcp/server/streamable_http_manager.py`** : `StreamableHTTPSessionManager.run()` ne peut être entré **qu'une seule fois par instance, jamais réutilisable après sortie** (« Important: Only one StreamableHTTPSessionManager instance should be created per application. The instance cannot be reused after its run() context has completed. »). Un singleton `mcp_server`/`mcp_app` construit une fois au niveau module (comme l'esquissait la version initiale de ce plan) casse dès qu'une deuxième requête ASGI `lifespan` a lieu dans le même process — exactement ce que fait ce dépôt de tests, qui recrée un `TestClient(app)` par fonction de test dans la plupart des fichiers, chacun redéclenchant tout le `lifespan` d'`agent/main.py`. La Task 3 ci-dessous est corrigée en conséquence : `build_mcp_server()` (déjà une factory) est appelée **à l'intérieur du `lifespan`**, une instance fraîche par cycle — sans impact en production (un seul cycle de toute façon, un process = un démarrage). Le montage Starlette ne peut pas référencer statiquement l'app ainsi reconstruite (un `Mount` est fixé au moment de la construction d'`app`, avant que `lifespan` ne tourne) ; un petit wrapper ASGI monté à la place délègue à `scope["app"].state.mcp_app`, peuplé fraîchement par chaque cycle de `lifespan` avant le `yield` — mécanisme standard Starlette (`scope["app"]` est injecté par l'app racine dans tout appel imbriqué, y compris les sous-apps montées).
 
 ## Task 1 : Vérification de token (`agent/mcp/auth.py`)
 
@@ -361,9 +362,11 @@ git commit -m "feat: logique des 4 outils MCP externes, indépendante du transpo
 
 **Interfaces:**
 - Consumes : `VigieTokenVerifier` (Task 1), `register_tools` (Task 2).
-- Produces : `agent.mcp.server.mcp_server: FastMCP`, `agent.mcp.server.mcp_app: Starlette`, `agent.mcp.server.build_mcp_server() -> FastMCP` — consommés par la Task 4 (`mcp_app` via `agent.main.app` monté) et par `agent/main.py`.
+- Produces : `agent.mcp.server.build_mcp_server() -> FastMCP` (factory, aucune instance module-level — voir erratum dans Global Constraints) — consommée uniquement par `agent/main.py`, appelée fraîchement à chaque cycle de `lifespan`. La Task 4 ne consomme rien directement de `agent.mcp.server` : elle pilote `agent.main.app` via de vraies requêtes HTTP.
 
-- [ ] **Step 1: Écrire le test (échoue, le module actuel n'a pas ces symboles)**
+**Correction (erratum ci-dessus)** : pas de singleton module-level `mcp_server`/`mcp_app`. `build_mcp_server()` reste une factory pure (déjà le cas dans la version précédente de ce plan) ; c'est `agent/main.py::lifespan()` qui en construit une instance fraîche à chaque entrée, et un petit wrapper ASGI monté une seule fois (à la construction d'`app`, comme avant) délègue à l'instance courante via `app.state`.
+
+- [ ] **Step 1: Écrire le test (échoue, le module actuel n'a pas `build_mcp_server`)**
 
 Créer `tests/unit/test_mcp_server_assembly.py` :
 
@@ -371,11 +374,12 @@ Créer `tests/unit/test_mcp_server_assembly.py` :
 import pytest
 from starlette.applications import Starlette
 
-from agent.mcp.server import build_mcp_server, mcp_app
+from agent.mcp.server import build_mcp_server
 
 
-def test_mcp_app_is_starlette_instance():
-    assert isinstance(mcp_app, Starlette)
+def test_build_mcp_server_returns_starlette_app():
+    server = build_mcp_server()
+    assert isinstance(server.streamable_http_app(), Starlette)
 
 
 @pytest.mark.asyncio
@@ -399,7 +403,6 @@ Expected: FAIL — `ImportError: cannot import name 'build_mcp_server' from 'age
 
 from mcp.server.auth.settings import AuthSettings
 from mcp.server.fastmcp import FastMCP
-from starlette.applications import Starlette
 
 from agent.mcp.auth import VigieTokenVerifier
 from agent.mcp.tools import register_tools
@@ -411,6 +414,13 @@ _ISSUER_URL = "http://vigie.local/"
 
 
 def build_mcp_server() -> FastMCP:
+    """Construit une instance FastMCP fraîche — jamais de singleton module-level.
+
+    StreamableHTTPSessionManager (créé en interne par streamable_http_app()) ne peut
+    être démarré qu'une seule fois par instance ; un singleton casserait dès le
+    deuxième cycle de lifespan (chaque `with TestClient(app)` en recrée un). Voir
+    agent/main.py::lifespan().
+    """
     server = FastMCP(
         name="vigie",
         token_verifier=VigieTokenVerifier(),
@@ -419,10 +429,6 @@ def build_mcp_server() -> FastMCP:
     )
     register_tools(server)
     return server
-
-
-mcp_server = build_mcp_server()
-mcp_app: Starlette = mcp_server.streamable_http_app()
 ```
 
 - [ ] **Step 4: Lancer le test, vérifier le succès**
@@ -434,7 +440,13 @@ Expected: PASS — 2 tests verts. Si `FastMCP(...)` ou `AuthSettings(...)` lève
 
 Remplacer l'import (ligne 11 actuelle) :
 ```python
-from agent.mcp.server import mcp_app, mcp_server
+from agent.mcp.server import build_mcp_server
+```
+
+Ajouter, juste avant la définition de `lifespan` (avant la ligne 34 actuelle), le petit wrapper ASGI qui délègue à l'app MCP courante :
+```python
+async def _mcp_asgi(scope, receive, send):
+    await scope["app"].state.mcp_app(scope, receive, send)
 ```
 
 Remplacer le `lifespan` (lignes 34-47 actuelles) :
@@ -451,6 +463,8 @@ async def lifespan(app: FastAPI):
     )
     scheduler.start()
     logger.info("VIGIE agent v%s démarré", APP_VERSION)
+    mcp_server = build_mcp_server()
+    app.state.mcp_app = mcp_server.streamable_http_app()
     async with mcp_server.session_manager.run():
         yield
     scheduler.shutdown()
@@ -458,9 +472,11 @@ async def lifespan(app: FastAPI):
 
 Remplacer le montage du router MCP (ligne 58 actuelle, `app.include_router(mcp_router)`) par :
 ```python
-app.mount("/mcp", mcp_app)
+app.mount("/mcp", _mcp_asgi)
 ```
-Ce `mount` doit rester le **dernier** ajout à `app` (après tous les `include_router` des autres routes) — un `Mount` Starlette capte tout le préfixe `/mcp/...`, le placer avant risquerait de masquer d'autres routes si l'ordre venait à changer.
+Ce montage référence le wrapper (fixe, construit une seule fois avec `app`), pas une app Starlette construite à l'avance — c'est ce qui permet à `lifespan` de reconstruire l'app MCP à chaque cycle sans jamais retoucher le routing d'`app`. Il doit rester le **dernier** ajout à `app` (après tous les `include_router` des autres routes) — un `Mount` Starlette capte tout le préfixe `/mcp/...`, le placer avant risquerait de masquer d'autres routes si l'ordre venait à changer.
+
+**Point à vérifier empiriquement** (comme toujours pour un fait SDK/Starlette non prouvé dans ce projet avant ce jour) : que `scope["app"]` est bien injecté par Starlette dans l'appel du wrapper monté, et pointe vers l'instance `app` dont `state.mcp_app` a été peuplé par `lifespan`. Le Step 7 ci-dessous est la vérification réelle de ce point (si `_mcp_asgi` lève une `AttributeError`/`KeyError`, c'est que cette hypothèse est fausse — documenter ce qui a été trouvé et le mécanisme alternatif utilisé, ex. fermeture sur une variable mutable au lieu de `scope["app"]`).
 
 - [ ] **Step 6: Ajouter la dépendance directe**
 
@@ -469,10 +485,16 @@ Dans `agent/requirements.txt`, ajouter une ligne après `claude-agent-sdk>=0.2.1
 mcp>=1.23,<2.0
 ```
 
-- [ ] **Step 7: Vérifier que l'app se construit toujours**
+- [ ] **Step 7: Vérifier que l'app se construit toujours, y compris sur plusieurs cycles de lifespan dans le même process**
 
 Run: `PYTHONPATH=. .venv/bin/pytest tests/integration/test_api.py -v`
-Expected: PASS — `test_health` et les autres tests de ce fichier passent toujours (confirme que `agent.main.app` se construit et démarre sans erreur avec le nouveau montage/lifespan).
+Expected: PASS pour `test_health`, `test_ask_scoped_tenant`, `test_metrics_usage` (ces 3 ne touchent pas `/mcp`, ils prouvent que le `lifespan` corrigé tourne proprement sur plusieurs cycles `TestClient(app)` dans le même process — exactement le scénario qui cassait avec un singleton).
+
+`test_mcp_requires_token`, `test_mcp_health_with_token`, `test_tenant_b_cannot_use_mcp_token_a` (3 tests de ce même fichier) vont encore échouer à ce stade : ils frappent l'ancienne forme REST (`POST /mcp/tools/get_project_health`), qui n'existe plus après ce remplacement complet — **attendu**, ce n'est pas une régression de cette tâche. Leur retrait fait partie de la Task 5 (portée étendue ci-dessous suite à cette découverte).
+
+Run ensuite la suite complète pour confirmer que le problème de cascade (un cycle de lifespan qui échoue empêche `scheduler.shutdown()`, ce qui casse le test suivant via `ConflictingIdError` sur `alert_cycle`) a bien disparu :
+Run: `PYTHONPATH=. .venv/bin/pytest tests/ -v`
+Expected: seuls les tests frappant encore l'ancienne forme REST échouent (ceux listés ci-dessus, plus leurs équivalents dans `tests/integration/test_mcp_client.py` et `tests/isolation/test_non_fuite.py`) — zéro `RuntimeError`/`ConflictingIdError` en cascade, zéro ERROR sur des tests sans rapport avec MCP.
 
 - [ ] **Step 8: Lint**
 
@@ -565,7 +587,7 @@ async def test_valid_token_lists_four_tools(mcp_base_url):
 
 Run: `PYTHONPATH=. .venv/bin/pytest tests/integration/test_mcp_protocol.py::test_valid_token_lists_four_tools -v`
 
-**Si ça échoue avec une 404 ou une erreur de connexion** : le chemin `f"{mcp_base_url}/mcp"` est probablement incorrect compte tenu de `streamable_http_path="/"` (Task 3) + `app.mount("/mcp", mcp_app)`. Essayer `f"{mcp_base_url}/mcp/"` (slash final). Documenter dans le rapport la valeur qui fonctionne réellement — c'est un fait empirique à consigner, pas à deviner davantage.
+**Si ça échoue avec une 404 ou une erreur de connexion** : le chemin `f"{mcp_base_url}/mcp"` est probablement incorrect compte tenu de `streamable_http_path="/"` (Task 3) + `app.mount("/mcp", _mcp_asgi)`. Essayer `f"{mcp_base_url}/mcp/"` (slash final). Documenter dans le rapport la valeur qui fonctionne réellement — c'est un fait empirique à consigner, pas à deviner davantage.
 
 Expected une fois résolu : PASS.
 
@@ -640,6 +662,7 @@ git commit -m "test: couverture bout-en-bout du serveur MCP externe (auth + tran
 **Files:**
 - Delete: `tests/integration/test_mcp_client.py`
 - Modify: `tests/isolation/test_non_fuite.py`
+- Modify: `tests/integration/test_api.py`
 
 **Interfaces:**
 - Consumes : rien de nouveau.
@@ -649,6 +672,8 @@ git commit -m "test: couverture bout-en-bout du serveur MCP externe (auth + tran
 - `test_06_mcp_alpha_token` (token valide → 200, tenant_id correct) → couvert par `test_tool_call_scoped_to_tenant` (Task 4), en plus fort (compare 2 tenants).
 - `test_08_mcp_invalid_token` (token invalide → erreur) → couvert par `test_invalid_token_rejected` (Task 4).
 - `test_07_mcp_cross_tenant_forbidden` (incohérence `X-Tenant-ID` vs token → 403) → **aucun équivalent** : ce scénario testait un mécanisme (le header `X-Tenant-ID` comme double-contrôle) qui n'existe plus par design (§3 du design Phase 4 — le tenant vient uniquement du token désormais). Ce n'est pas une perte de couverture sur l'invariant réel (aucune fuite inter-tenant) : cet invariant reste couvert par `test_tool_call_scoped_to_tenant`.
+
+**Découverte pendant l'implémentation de la Task 3** : `tests/integration/test_api.py` contient lui aussi 3 tests frappant l'ancien REST (`test_mcp_requires_token`, `test_mcp_health_with_token`, `test_tenant_b_cannot_use_mcp_token_a`, lignes 40-69 actuelles) — omis de l'inventaire initial de cette tâche. Même traitement, même couverture équivalente que ci-dessus (`test_mcp_requires_token`/`test_mcp_health_with_token` → `test_valid_token_lists_four_tools`/`test_tool_call_scoped_to_tenant` de la Task 4 ; `test_tenant_b_cannot_use_mcp_token_a` → aucun équivalent direct, même raison que `test_07_mcp_cross_tenant_forbidden` ci-dessus).
 
 - [ ] **Step 1: Supprimer l'ancien fichier de test REST**
 
@@ -666,20 +691,24 @@ Mettre à jour le docstring du module (ligne 1 actuelle) pour refléter le compt
 dans tests/integration/test_mcp_protocol.py, protocole réel plutôt que REST)."""
 ```
 
-- [ ] **Step 3: Lancer la suite complète**
+- [ ] **Step 3: Retirer les 3 scénarios MCP obsolètes de `tests/integration/test_api.py`**
+
+Supprimer les fonctions `test_mcp_requires_token`, `test_mcp_health_with_token`, `test_tenant_b_cannot_use_mcp_token_a` (lignes 40-69 actuelles) en entier. Retirer aussi `import re` (ligne 1) : ses deux seuls usages (`re.compile(...)`, lignes 47 et 51) sont à l'intérieur de `test_mcp_health_with_token`, qui disparaît avec ce retrait — confirmer qu'aucun autre test du fichier n'utilise `re` avant de le retirer.
+
+- [ ] **Step 4: Lancer la suite complète**
 
 Run: `PYTHONPATH=. .venv/bin/pytest tests/ -v`
-Expected: PASS — aucune régression, `tests/isolation/test_non_fuite.py` a maintenant 7 tests (au lieu de 10), `tests/integration/test_mcp_client.py` n'existe plus.
+Expected: PASS — aucune régression, `tests/isolation/test_non_fuite.py` a maintenant 7 tests (au lieu de 10), `tests/integration/test_api.py` a maintenant 3 tests (au lieu de 6), `tests/integration/test_mcp_client.py` n'existe plus.
 
-- [ ] **Step 4: Lint**
+- [ ] **Step 5: Lint**
 
-Run: `.venv/bin/ruff check tests/isolation/test_non_fuite.py`
+Run: `.venv/bin/ruff check tests/isolation/test_non_fuite.py tests/integration/test_api.py`
 Expected: `All checks passed!`
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
-git add tests/isolation/test_non_fuite.py
+git add tests/isolation/test_non_fuite.py tests/integration/test_api.py
 git commit -m "test: retire la couverture MCP REST obsolète (remplacée par test_mcp_protocol.py)"
 ```
 
