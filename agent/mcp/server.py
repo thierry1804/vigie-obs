@@ -8,7 +8,7 @@ from pydantic import BaseModel
 
 from agent.db.models import Anomaly, Tenant
 from agent.db.session import get_session
-from agent.services.agent_loop import agent_loop
+from agent.harness.runner import run_agent
 from agent.services.taxonomy import load_taxonomy
 from agent.tools.loki import run_query_loki
 from agent.tools.prometheus import run_query_prometheus
@@ -120,7 +120,8 @@ async def explain_anomaly(params: ExplainParams, tenant_id: str = Depends(verify
                 context = f"Anomalie {a.title}: {a.diagnosis}"
     if not context:
         context = "Explique l'état de santé actuel du projet."
-    diagnosis = await agent_loop(
+    diagnosis = await run_agent(
+        "ask",
         f"Investigation structurée (FAITS/HYPOTHÈSES):\n{context}",
         tenant_id=tenant_id,
         endpoint="mcp/explain_anomaly",

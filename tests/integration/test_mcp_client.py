@@ -47,3 +47,28 @@ def test_proto_factory_explain_anomaly(mcp_client):
     )
     assert r.status_code == 200
     assert "diagnosis" in r.json()
+
+
+def test_proto_factory_explain_anomaly_uses_ask_preset(mcp_client, monkeypatch):
+    import agent.mcp.server as mcp_server_module
+
+    captured = {}
+
+    async def fake_run_agent(
+        preset, user_message, tenant_id="default", endpoint="ask", system_prompt=None, **kwargs
+    ):
+        captured["preset"] = preset
+        captured["endpoint"] = endpoint
+        return "diagnostic factice"
+
+    monkeypatch.setattr(mcp_server_module, "run_agent", fake_run_agent)
+
+    r = mcp_client.post(
+        "/mcp/tools/explain_anomaly",
+        json={"question": "Pic CPU hier ?"},
+        headers={"Authorization": "Bearer test-mcp"},
+    )
+
+    assert r.status_code == 200
+    assert r.json()["diagnosis"] == "diagnostic factice"
+    assert captured == {"preset": "ask", "endpoint": "mcp/explain_anomaly"}
