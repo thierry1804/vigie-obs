@@ -42,3 +42,4 @@ PYTHONPATH=. VIGIE_MOCK_LLM=1 .venv/bin/pytest tests/ -v
 - [Intégration MCP](docs/mcp-integration.md)
 - [Validations externes pending](docs/pending-external-validation.md)
 - [CHANGELOG](CHANGELOG.md)
+- [Migration harness Claude Agent SDK — état d'avancement](docs/superpowers/harness-migration-status.md)
