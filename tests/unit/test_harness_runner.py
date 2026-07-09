@@ -150,3 +150,35 @@ async def test_run_agent_mock_taxonomy_returns_yaml(monkeypatch):
     monkeypatch.setenv("VIGIE_MOCK_LLM", "1")
     answer = await runner.run_agent("taxonomy", "explore", tenant_id="acme", endpoint="taxonomy")
     assert "events:" in answer
+
+
+@pytest.mark.asyncio
+async def test_run_agent_mock_discovery_returns_text(monkeypatch):
+    monkeypatch.setenv("VIGIE_MOCK_LLM", "1")
+    answer = await runner.run_agent("discovery", "classify", tenant_id="acme", endpoint="discover")
+    assert answer == "Classification terminée (mock)."
+
+
+@pytest.mark.asyncio
+async def test_run_agent_passes_preset_kwargs_to_builder(monkeypatch):
+    monkeypatch.setenv("VIGIE_MOCK_LLM", "0")
+
+    captured = {}
+
+    def fake_build_discovery_options(tenant_id, system_prompt=None, **kwargs):
+        captured.update(kwargs)
+        return runner.build_triage_options(tenant_id, system_prompt=system_prompt)
+
+    async def fake_query(*, prompt, options=None, transport=None):
+        yield FakeResultMessage(result="ok", usage={"input_tokens": 1, "output_tokens": 1})
+
+    monkeypatch.setattr(runner, "query", fake_query)
+    monkeypatch.setattr(runner, "ResultMessage", FakeResultMessage)
+    monkeypatch.setitem(runner._PRESET_BUILDERS, "discovery", fake_build_discovery_options)
+
+    sentinel = object()
+    await runner.run_agent(
+        "discovery", "classify", tenant_id="acme", endpoint="discover", report=sentinel
+    )
+
+    assert captured == {"report": sentinel}

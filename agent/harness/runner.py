@@ -5,6 +5,7 @@ from claude_agent_sdk import ResultMessage, query
 from agent.config import MODEL_DIAGNOSTIC
 from agent.harness.options import (
     build_diagnostic_options,
+    build_discovery_options,
     build_taxonomy_options,
     build_triage_options,
 )
@@ -23,12 +24,14 @@ _MOCK_ANSWERS = {
         "    patterns: ['commande créée', 'order created']\n"
         "    description: Commande créée (mock)\n"
     ),
+    "discovery": "Classification terminée (mock).",
 }
 
 _PRESET_BUILDERS = {
     "diagnostic": build_diagnostic_options,
     "triage": build_triage_options,
     "taxonomy": build_taxonomy_options,
+    "discovery": build_discovery_options,
 }
 
 
@@ -38,6 +41,7 @@ async def run_agent(
     tenant_id: str = "default",
     endpoint: str = "ask",
     system_prompt: str | None = None,
+    **preset_kwargs,
 ) -> str:
     """Exécute un agent (preset donné) via le harness, ou renvoie une réponse fixture en mode mock."""
     if _mock_enabled():
@@ -47,7 +51,7 @@ async def run_agent(
     if not ok:
         return msg
 
-    options = _PRESET_BUILDERS[preset](tenant_id, system_prompt=system_prompt)
+    options = _PRESET_BUILDERS[preset](tenant_id, system_prompt=system_prompt, **preset_kwargs)
 
     result_message: ResultMessage | None = None
     try:
