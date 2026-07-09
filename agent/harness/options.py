@@ -9,7 +9,9 @@ from agent.harness.hooks import (
     make_budget_guard_hook,
     make_tenant_scope_hook,
 )
+from agent.tools.fs_scan_server import build_fs_scan_mcp_server
 from agent.tools.mcp_server import build_obs_mcp_server
+from discovery.scanner import DiscoveryReport
 
 DIAGNOSTIC_SYSTEM_PROMPT = """Tu es VIGIE, un agent d'observabilité branché sur un projet en production.
 Tu as accès aux logs (Loki/LogQL), aux métriques système (Prometheus/PromQL) et aux traces (Tempo).
@@ -107,6 +109,45 @@ def build_taxonomy_options(
             "PostToolUse": [
                 HookMatcher(
                     matcher=_OBS_TOOL_MATCHER,
+                    hooks=[make_audit_hook(tenant_id), anonymize_hook],
+                )
+            ],
+        },
+    )
+
+
+DISCOVERY_SYSTEM_PROMPT = """Tu es un expert observabilité chargé de classifier des sources de logs.
+Pour chaque source déjà découverte, détermine son format/framework (ex: symfony, laravel, node, json, texte libre) à partir des échantillons fournis.
+
+Méthode :
+1. Examine les échantillons fournis pour chaque source.
+2. Si un échantillon est trop court ou ambigu pour conclure, utilise l'outil sample_lines pour en obtenir davantage.
+3. Pour CHAQUE source, appelle l'outil set_framework_hint avec ta conclusion — n'en oublie aucune.
+
+Règles :
+- Base-toi uniquement sur les échantillons observés, pas sur des suppositions.
+- Réponds en français, de façon concise."""
+
+_FS_TOOL_MATCHER = "mcp__vigie-fs__.*"
+
+
+def build_discovery_options(
+    tenant_id: str, system_prompt: str | None = None, *, report: DiscoveryReport
+) -> ClaudeAgentOptions:
+    """Preset de l'agent discovery — classifie les sources déjà scannées, rééchantillonne si besoin."""
+    return ClaudeAgentOptions(
+        model=MODEL_TRIAGE,
+        system_prompt=system_prompt or DISCOVERY_SYSTEM_PROMPT,
+        mcp_servers={"vigie-fs": build_fs_scan_mcp_server(report)},
+        max_turns=6,
+        permission_mode="bypassPermissions",
+        hooks={
+            "PreToolUse": [
+                HookMatcher(matcher=_FS_TOOL_MATCHER, hooks=[make_budget_guard_hook(tenant_id)])
+            ],
+            "PostToolUse": [
+                HookMatcher(
+                    matcher=_FS_TOOL_MATCHER,
                     hooks=[make_audit_hook(tenant_id), anonymize_hook],
                 )
             ],
