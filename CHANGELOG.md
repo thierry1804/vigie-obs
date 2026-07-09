@@ -8,6 +8,7 @@
 - Migre `triage.py` vers le harness Claude Agent SDK (`run_agent("triage", ...)`) — `triage_alert()` devient asynchrone.
 - Enrichit `taxonomy.py` : `propose_taxonomy()` devient un agent qui interroge lui-même `query_loki` au lieu d'un échantillonnage Python fixe.
 - Ajoute `anonymize_hook` (rédaction email) sur tous les presets exposant des outils (diagnostic et taxonomie) — ferme un trou de confidentialité où l'agent diagnostic ne rédigeait jamais les emails présents dans les logs qu'il lit.
+- Migre `discovery.py` vers le harness Claude Agent SDK — `infer_formats()`/`run_discovery()` deviennent asynchrones. Corrige un bug où la réponse LLM était calculée mais jamais utilisée (seule une heuristique Python décidait du `framework_hint`) : la classification est désormais réellement pilotée par l'agent, via deux outils bornés (`sample_lines`, `set_framework_hint`) qui n'acceptent jamais de chemin arbitraire.
 
 ## 2.0.0 — Plateforme (V2)
 
