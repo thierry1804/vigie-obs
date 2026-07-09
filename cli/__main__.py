@@ -19,7 +19,7 @@ def discover(
     """Scan read-only + génération vector.toml proposé."""
     from agent.services.discovery import run_discovery
 
-    result = run_discovery(target, tenant_id=tenant, existing_config=existing)
+    result = asyncio.run(run_discovery(target, tenant_id=tenant, existing_config=existing))
     typer.echo(json.dumps(result["report"], ensure_ascii=False, indent=2))
     typer.echo("\n--- Config proposée ---\n")
     typer.echo(result["proposed_config"])

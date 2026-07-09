@@ -5,30 +5,23 @@ from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader
 
-from agent.services.llm_client import _mock_enabled, create_message
-from agent.services.tokens import record_usage
+from agent.harness.runner import run_agent
 from discovery.scanner import DiscoveryReport, discover_target, report_to_json
 
 TEMPLATES_DIR = Path(__file__).resolve().parents[2] / "config" / "templates"
 
 
-def infer_formats(report: DiscoveryReport) -> DiscoveryReport:
+async def infer_formats(report: DiscoveryReport, tenant_id: str = "default") -> DiscoveryReport:
+    last_index = len(report.log_sources) - 1
     prompt = (
-        "Analyse ces échantillons de logs et infère pour chaque source : "
-        "format (json/texte), champs disponibles, niveau de verbosité.\n"
-        f"{report_to_json(report)}"
+        "Voici les sources de logs déjà découvertes, avec un premier échantillon de lignes "
+        "pour chacune :\n"
+        f"{report_to_json(report)}\n\n"
+        f"Pour chaque source (index 0 à {last_index}), détermine son format/framework et "
+        "enregistre ta conclusion avec l'outil set_framework_hint. Si les échantillons sont "
+        "insuffisants pour conclure, utilise sample_lines pour en obtenir plus avant de conclure."
     )
-    response = create_message(
-        model="claude-haiku-4-5-20251001",
-        max_tokens=1500,
-        system="Tu es un expert observabilité. Réponds en JSON structuré.",
-        messages=[{"role": "user", "content": prompt}],
-    )
-    record_usage("default", "discover", "claude-haiku-4-5-20251001", response.usage.input_tokens, response.usage.output_tokens)
-    if not _mock_enabled():
-        for src in report.log_sources:
-            if src.sample_lines and src.sample_lines[0].startswith("{"):
-                src.framework_hint = src.framework_hint or "json"
+    await run_agent("discovery", prompt, tenant_id=tenant_id, endpoint="discover", report=report)
     return report
 
 
@@ -68,9 +61,12 @@ def diff_config(proposed: str, existing_path: Path | None) -> str:
     return "".join(diff) or "Aucune différence."
 
 
-def run_discovery(target: str, tenant_id: str = "default", existing_config: Path | None = None) -> dict:
+async def run_discovery(
+    target: str, tenant_id: str = "default", existing_config: Path | None = None
+) -> dict:
     report = discover_target(target)
-    report = infer_formats(report)
+    if report.log_sources:
+        report = await infer_formats(report, tenant_id=tenant_id)
     proposed = generate_vector_config(report, tenant_id=tenant_id)
     return {
         "report": report.to_dict(),

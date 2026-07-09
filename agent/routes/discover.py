@@ -17,5 +17,5 @@ class DiscoverRequest(BaseModel):
 @router.post("/discover")
 async def discover(req: DiscoverRequest, tenant_id: str = Depends(get_tenant_id)):
     existing = Path(req.existing_config) if req.existing_config else None
-    result = run_discovery(req.target, tenant_id=tenant_id, existing_config=existing)
+    result = await run_discovery(req.target, tenant_id=tenant_id, existing_config=existing)
     return result
