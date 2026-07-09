@@ -30,7 +30,7 @@ initVigieOtel({ serviceName: 'mon-api', tenantId: 'client_x' });
 
 ## MCP (agents ETECH)
 
-Endpoints sous `/mcp/tools/` avec `Authorization: Bearer <mcp_token>`.
+Vrai serveur MCP (protocole JSON-RPC, transport Streamable HTTP) monté sous `/mcp`, auth par `Authorization: Bearer <mcp_token>`.
 
 Outils : `get_project_health`, `query_incidents`, `get_business_kpis`, `explain_anomaly`.
 
