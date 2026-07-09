@@ -1,5 +1,3 @@
-import re
-
 import pytest
 from fastapi.testclient import TestClient
 
@@ -35,35 +33,3 @@ def test_metrics_usage(client):
     r = client.get("/metrics/usage", headers={"X-Tenant-ID": "tenant_a"})
     assert r.status_code == 200
     assert r.json()["tenant_id"] == "tenant_a"
-
-
-def test_mcp_requires_token(client):
-    r = client.post("/mcp/tools/get_project_health", json={"hours": 24})
-    assert r.status_code == 401
-
-
-def test_mcp_health_with_token(client, httpx_mock):
-    httpx_mock.add_response(
-        url=re.compile(r"http://loki:3100/loki/api/v1/query_range.*"),
-        json={"data": {"result": []}},
-    )
-    httpx_mock.add_response(
-        url=re.compile(r"http://prometheus:9090/api/v1/query.*"),
-        json={"data": {"result": []}},
-    )
-    r = client.post(
-        "/mcp/tools/get_project_health",
-        json={"hours": 24},
-        headers={"Authorization": "Bearer mcp_a", "X-Tenant-ID": "tenant_a"},
-    )
-    assert r.status_code == 200
-    assert r.json()["tenant_id"] == "tenant_a"
-
-
-def test_tenant_b_cannot_use_mcp_token_a(client):
-    r = client.post(
-        "/mcp/tools/get_project_health",
-        json={"hours": 24},
-        headers={"Authorization": "Bearer mcp_a", "X-Tenant-ID": "tenant_b"},
-    )
-    assert r.status_code == 403

@@ -1,7 +1,7 @@
-"""Tests d'isolation multi-tenant — 10 scénarios obligatoires CI."""
+"""Tests d'isolation multi-tenant — 7 scénarios obligatoires CI (MCP couvert séparément
+dans tests/integration/test_mcp_protocol.py, protocole réel plutôt que REST)."""
 
 import os
-import re
 
 import pytest
 from fastapi.testclient import TestClient
@@ -78,42 +78,6 @@ def test_05_metrics_usage_separate(isolated_client):
         headers={"X-Tenant-ID": "beta", "Authorization": "Bearer master-token"},
     )
     assert r.json()["tenant_id"] == "beta"
-
-
-def test_06_mcp_alpha_token(isolated_client, httpx_mock):
-    httpx_mock.add_response(
-        url=re.compile(r"http://loki:3100/loki/api/v1/query_range.*"),
-        json={"data": {"result": []}},
-    )
-    httpx_mock.add_response(
-        url=re.compile(r"http://prometheus:9090/api/v1/query.*"),
-        json={"data": {"result": []}},
-    )
-    r = isolated_client.post(
-        "/mcp/tools/get_project_health",
-        json={"hours": 1},
-        headers={"Authorization": "Bearer mcp_alpha"},
-    )
-    assert r.status_code == 200
-    assert r.json()["tenant_id"] == "alpha"
-
-
-def test_07_mcp_cross_tenant_forbidden(isolated_client):
-    r = isolated_client.post(
-        "/mcp/tools/get_project_health",
-        json={"hours": 1},
-        headers={"Authorization": "Bearer mcp_alpha", "X-Tenant-ID": "beta"},
-    )
-    assert r.status_code == 403
-
-
-def test_08_mcp_invalid_token(isolated_client):
-    r = isolated_client.post(
-        "/mcp/tools/get_project_health",
-        json={"hours": 1},
-        headers={"Authorization": "Bearer invalid"},
-    )
-    assert r.status_code == 403
 
 
 def test_09_api_token_required_when_set(isolated_client):
