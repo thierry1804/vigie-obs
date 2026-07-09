@@ -9,6 +9,7 @@ Observabilité technique **et** fonctionnelle sur un projet existant, **sans mod
 | V0 | 0.1.0 | Collecte + agent réactif |
 | V1 | 1.0.0 | Discovery, taxonomie, alerting, multi-tenant partiel |
 | V2 | 2.0.0 | + Tempo, MCP, SDK OTel, isolation complète |
+| V3 | 3.0.0 | Moteur agent migré vers le [Claude Agent SDK](docs/superpowers/harness-migration-status.md) (harness multi-agents), vrai serveur MCP protocolaire (`FastMCP`, Streamable HTTP). Comportement externe inchangé (mêmes endpoints, mêmes contrats HTTP/MCP) |
 
 ## Démarrage rapide
 
