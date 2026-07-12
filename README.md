@@ -42,7 +42,7 @@ PYTHONPATH=. VIGIE_MOCK_LLM=1 .venv/bin/pytest tests/ -v
 
 ## Documentation
 
-- **[Guide utilisateur](docs/guide-utilisateur.md)** — installation complète et utilisation (API, CLI, alerting, MCP)
+- **[Guide utilisateur](docs/guide-utilisateur.md)** — installation complète et utilisation (API, CLI, alerting, MCP), aussi disponible en [PDF](docs/VIGIE-guide-utilisateur.pdf) avec schéma d'architecture
 - [Install V1](docs/runbooks/install-v1.md) / [Install V2](docs/runbooks/install-v2.md) — versions courtes historiques
 - [Intégration MCP](docs/mcp-integration.md)
 - [Validations externes pending](docs/pending-external-validation.md)

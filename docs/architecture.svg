@@ -1,0 +1,128 @@
+<svg viewBox="0 0 900 668" xmlns="http://www.w3.org/2000/svg" font-family="Helvetica, Arial, sans-serif" role="img" aria-label="Architecture VIGIE">
+  <title>Architecture VIGIE</title>
+  <desc>Schéma en couches : sources (projet observé, machine hôte) vers collecte (Vector, node-exporter, otel-collector optionnel) vers stockage (Loki, Prometheus, Tempo optionnel) vers Grafana et l'agent VIGIE, qui appelle l'API Anthropic et sert un client HTTP et un agent externe MCP.</desc>
+
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#475569"/>
+    </marker>
+    <marker id="arrow-accent" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#4338ca"/>
+    </marker>
+  </defs>
+
+  <style>
+    .box { fill:#eef2f7; stroke:#475569; stroke-width:1.5; }
+    .box-dashed { fill:#eef2f7; stroke:#94a3b8; stroke-width:1.5; stroke-dasharray:6,4; }
+    .box-accent { fill:#e0e7ff; stroke:#4338ca; stroke-width:2; }
+    .title { font-size:15px; font-weight:700; fill:#1e293b; }
+    .title-accent { font-size:16px; font-weight:700; fill:#312e81; }
+    .sub { font-size:11.5px; fill:#475569; }
+    .sub-accent { font-size:11.5px; fill:#3730a3; }
+    .tier-label { font-size:12px; font-weight:700; fill:#94a3b8; letter-spacing:1px; }
+    .edge { stroke:#475569; stroke-width:1.5; fill:none; marker-end:url(#arrow); }
+    .edge-dashed { stroke:#94a3b8; stroke-width:1.5; fill:none; stroke-dasharray:5,4; marker-end:url(#arrow); }
+    .edge-accent { stroke:#4338ca; stroke-width:1.8; fill:none; marker-end:url(#arrow-accent); marker-start:url(#arrow-accent); }
+    .edge-label { font-size:10.5px; fill:#334155; }
+    .edge-label-bg { fill:#ffffff; opacity:0.9; }
+  </style>
+
+  <!-- TIER LABELS (dans les marges, jamais recouvertes par une boîte) -->
+  <text x="20" y="20" class="tier-label">SOURCES</text>
+  <text x="20" y="120" class="tier-label">COLLECTE</text>
+  <text x="20" y="220" class="tier-label">STOCKAGE</text>
+  <text x="20" y="320" class="tier-label">AGENT &amp; DASHBOARDS</text>
+  <text x="20" y="475" class="tier-label">LLM</text>
+  <text x="20" y="575" class="tier-label">CONSOMMATEURS</text>
+
+  <!-- ROW 0: sources -->
+  <rect x="170" y="28" width="260" height="60" rx="8" class="box"/>
+  <text x="300" y="51" text-anchor="middle" class="title">Projet observé</text>
+  <text x="300" y="69" text-anchor="middle" class="sub">logs, stdout Docker, SDK OTel (opt.)</text>
+
+  <rect x="470" y="28" width="260" height="60" rx="8" class="box"/>
+  <text x="600" y="51" text-anchor="middle" class="title">Machine hôte</text>
+  <text x="600" y="69" text-anchor="middle" class="sub">CPU, disque, mémoire</text>
+
+  <!-- ROW 1: collecte -->
+  <rect x="150" y="128" width="180" height="60" rx="8" class="box"/>
+  <text x="240" y="153" text-anchor="middle" class="title">Vector</text>
+  <text x="240" y="171" text-anchor="middle" class="sub">collecte logs</text>
+
+  <rect x="360" y="128" width="180" height="60" rx="8" class="box"/>
+  <text x="450" y="153" text-anchor="middle" class="title">node-exporter</text>
+  <text x="450" y="171" text-anchor="middle" class="sub">métriques hôte</text>
+
+  <rect x="570" y="128" width="180" height="60" rx="8" class="box-dashed"/>
+  <text x="660" y="153" text-anchor="middle" class="title">otel-collector</text>
+  <text x="660" y="171" text-anchor="middle" class="sub">OTLP (optionnel)</text>
+
+  <!-- ROW 2: stockage -->
+  <rect x="150" y="228" width="180" height="60" rx="8" class="box"/>
+  <text x="240" y="253" text-anchor="middle" class="title">Loki</text>
+  <text x="240" y="271" text-anchor="middle" class="sub">logs, LogQL</text>
+
+  <rect x="360" y="228" width="180" height="60" rx="8" class="box"/>
+  <text x="450" y="253" text-anchor="middle" class="title">Prometheus</text>
+  <text x="450" y="271" text-anchor="middle" class="sub">métriques, PromQL</text>
+
+  <rect x="570" y="228" width="180" height="60" rx="8" class="box-dashed"/>
+  <text x="660" y="253" text-anchor="middle" class="title">Tempo</text>
+  <text x="660" y="271" text-anchor="middle" class="sub">traces (optionnel)</text>
+
+  <!-- ROW 3: grafana + agent -->
+  <rect x="60" y="328" width="230" height="65" rx="8" class="box"/>
+  <text x="175" y="353" text-anchor="middle" class="title">Grafana</text>
+  <text x="175" y="371" text-anchor="middle" class="sub">dashboards logs/métriques/métier</text>
+
+  <rect x="330" y="328" width="510" height="115" rx="10" class="box-accent"/>
+  <text x="585" y="355" text-anchor="middle" class="title-accent">Agent VIGIE</text>
+  <text x="585" y="373" text-anchor="middle" class="sub-accent">FastAPI + harness Claude Agent SDK + SQLite (tenants, anomalies, alertes)</text>
+  <text x="585" y="391" text-anchor="middle" class="sub-accent">outils : query_loki · query_prometheus · query_traces</text>
+  <text x="585" y="409" text-anchor="middle" class="sub-accent">query_taxonomy · query_business_kpis</text>
+  <text x="585" y="429" text-anchor="middle" class="sub-accent">cycle alerting planifié (triage Haiku → Sonnet)</text>
+
+  <!-- ROW 4: anthropic -->
+  <rect x="400" y="483" width="270" height="60" rx="8" class="box"/>
+  <text x="535" y="508" text-anchor="middle" class="title">API Anthropic</text>
+  <text x="535" y="526" text-anchor="middle" class="sub">Claude (Sonnet, Haiku) via CLI claude</text>
+
+  <!-- ROW 5: consumers -->
+  <rect x="150" y="583" width="260" height="65" rx="8" class="box"/>
+  <text x="280" y="608" text-anchor="middle" class="title">Client HTTP / Ops</text>
+  <text x="280" y="626" text-anchor="middle" class="sub">/ask /report/daily /alerts /discover /metrics</text>
+
+  <rect x="490" y="583" width="260" height="65" rx="8" class="box"/>
+  <text x="620" y="608" text-anchor="middle" class="title">Agent externe</text>
+  <text x="620" y="626" text-anchor="middle" class="sub">/mcp — JSON-RPC Streamable HTTP</text>
+
+  <!-- EDGES: sources -> collecte -->
+  <path d="M270,88 L240,128" class="edge"/>
+  <path d="M400,88 L620,128" class="edge-dashed"/>
+  <path d="M600,88 L450,128" class="edge"/>
+
+  <!-- EDGES: collecte -> stockage -->
+  <path d="M240,188 L240,228" class="edge"/>
+  <path d="M450,188 L450,228" class="edge"/>
+  <path d="M660,188 L660,228" class="edge-dashed"/>
+
+  <!-- EDGES: stockage -> grafana -->
+  <path d="M200,288 C185,305 178,310 175,328" class="edge"/>
+  <path d="M400,288 C280,315 210,320 190,328" class="edge"/>
+  <path d="M580,288 C380,325 220,325 200,328" class="edge-dashed"/>
+
+  <!-- EDGES: stockage -> agent -->
+  <path d="M290,288 C340,310 420,320 470,328" class="edge"/>
+  <path d="M450,288 L495,328" class="edge"/>
+  <path d="M650,288 L600,328" class="edge-dashed"/>
+
+  <!-- EDGE: agent <-> anthropic -->
+  <path d="M585,443 L535,483" class="edge-accent"/>
+  <rect x="500" y="452" width="150" height="16" class="edge-label-bg"/>
+  <text x="575" y="464" text-anchor="middle" class="edge-label">Claude Agent SDK</text>
+
+  <!-- EDGES: agent <-> consumers -->
+  <path d="M450,443 L280,583" class="edge-accent"/>
+  <path d="M650,443 L620,583" class="edge-accent"/>
+
+</svg>

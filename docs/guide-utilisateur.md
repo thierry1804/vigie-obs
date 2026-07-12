@@ -44,7 +44,10 @@ Composants :
 | `grafana` | Dashboards (logs, métriques, événements métier) |
 | `agent` | API FastAPI + moteur agent (`/ask`, `/report/daily`, alerting, MCP) |
 
+![Schéma d'architecture VIGIE](architecture.svg)
+
 Trois usages principaux :
+
 - **Diagnostic conversationnel** (`POST /ask`) : poser une question en français, l'agent
   interroge Loki/Prometheus/Tempo lui-même et répond FAITS vs HYPOTHÈSES.
 - **Taxonomie métier** : l'agent apprend à reconnaître des événements métier (ex.
@@ -103,6 +106,7 @@ par le harness) et démarre les 8 conteneurs (`vector`, `loki`, `node-exporter`,
 `grafana`, `tempo`, `otel-collector`, `agent`).
 
 Au premier démarrage, l'agent :
+
 - crée la base SQLite (`VIGIE_DATA_DIR/vigie.db`) ;
 - seed un tenant `default` (jetons `default-api-token` / `default-mcp-token`, budget LLM
   500 000 tokens) ;
@@ -297,6 +301,7 @@ par `/ask` et `/report/daily`) et les dashboards Grafana métier.
 ## 8. Alerting proactif
 
 Cycle planifié toutes les `VIGIE_ALERT_INTERVAL_MINUTES` minutes (défaut 10) :
+
 1. Chaque règle activée (`GET /alerts/config`) est évaluée (requête LogQL ou PromQL réelle).
 2. Si le seuil est dépassé, un modèle léger (Haiku) trie bruit vs anomalie réelle.
 3. Une vraie anomalie crée une entrée (`GET /alerts/history`) et notifie les canaux
