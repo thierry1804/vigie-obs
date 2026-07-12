@@ -10,6 +10,7 @@ Observabilité technique **et** fonctionnelle sur un projet existant, **sans mod
 | V1 | 1.0.0 | Discovery, taxonomie, alerting, multi-tenant partiel |
 | V2 | 2.0.0 | + Tempo, MCP, SDK OTel, isolation complète |
 | V3 | 3.0.0 | Moteur agent migré vers le [Claude Agent SDK](docs/superpowers/harness-migration-status.md) (harness multi-agents), vrai serveur MCP protocolaire (`FastMCP`, Streamable HTTP). Comportement externe inchangé (mêmes endpoints, mêmes contrats HTTP/MCP) |
+| V3.0.1 | 3.0.1 | Stabilisation : conteneur agent en root (`IS_SANDBOX=1`), crash-loop Loki (`delete_request_store`), isolation tenant durcie au niveau outil, préset `ask` repassé en agent racine unique (fiabilité — voir [CHANGELOG](CHANGELOG.md)) |
 
 ## Démarrage rapide
 

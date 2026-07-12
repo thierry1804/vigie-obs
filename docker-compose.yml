@@ -100,6 +100,7 @@ services:
       - "8080:8080"
     environment:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - IS_SANDBOX=1
       - VIGIE_MOCK_LLM=${VIGIE_MOCK_LLM:-1}
       - VIGIE_API_TOKEN=${VIGIE_API_TOKEN:-}
       - LOKI_URL=http://loki:3100

@@ -28,4 +28,4 @@ SMTP_FROM = os.environ.get("VIGIE_SMTP_FROM", "")
 SMTP_TO = os.environ.get("VIGIE_SMTP_TO", "")
 
 DEFAULT_TENANT_ID = os.environ.get("VIGIE_DEFAULT_TENANT_ID", "default")
-APP_VERSION = "2.0.0"
+APP_VERSION = "3.0.1"

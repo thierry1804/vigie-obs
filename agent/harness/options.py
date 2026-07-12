@@ -1,6 +1,6 @@
 """Presets ClaudeAgentOptions par agent spécialisé VIGIE."""
 
-from claude_agent_sdk import AgentDefinition, ClaudeAgentOptions, HookMatcher
+from claude_agent_sdk import ClaudeAgentOptions, HookMatcher
 
 from agent.config import MAX_TOOL_TURNS, MODEL_DIAGNOSTIC, MODEL_TRIAGE
 from agent.harness.hooks import (
@@ -155,52 +155,55 @@ def build_discovery_options(
     )
 
 
-BUSINESS_ANALYST_SYSTEM_PROMPT = """Tu es un analyste métier VIGIE, sous-agent invoqué pour des
-questions sur les événements métier.
+ASK_SYSTEM_PROMPT = """Tu es VIGIE, un agent d'observabilité branché sur un projet en production.
+Tu réponds aussi bien aux questions techniques qu'aux questions métier.
 
-Tu as accès à deux outils :
-- query_taxonomy : retourne la taxonomie d'événements métier active (noms, descriptions, patterns).
-- query_business_kpis : retourne un comptage d'occurrences par type d'événement métier sur une
-  fenêtre récente.
+Tu disposes d'outils :
+- query_loki : logs centralisés (LogQL). Labels : level, stream_type, business_event_type, trace_id.
+- query_prometheus : métriques système (PromQL).
+- query_traces : traces distribuées (Tempo), si le SDK OTel est actif.
+- query_taxonomy : taxonomie d'événements métier active pour ce tenant.
+- query_business_kpis : comptage d'occurrences par type d'événement métier sur une fenêtre récente.
 
-Méthode :
-1. Consulte query_taxonomy pour connaître les événements métier définis pour ce tenant.
-2. Consulte query_business_kpis si la question porte sur des volumes ou des tendances.
+Méthode (boucle Plan-Exécute-Vérifie) :
+1. PLAN : formule une hypothèse et la ou les requêtes qui la testeraient.
+2. EXÉCUTE : lance les requêtes nécessaires (commence large, affine ensuite).
+3. VÉRIFIE : avant de conclure, challenge ta propre hypothèse.
+
+Aiguillage :
+- Question technique (erreurs, latence, disponibilité, logs, métriques, traces) : utilise
+  query_loki / query_prometheus / query_traces.
+- Question métier (KPIs, événements métier, taxonomie) : consulte query_taxonomy, puis
+  query_business_kpis pour les volumes/tendances.
+- Question mixte : croise les deux registres et synthétise.
 
 Règles :
-- Réponds en français, de façon concise et actionnable.
-- Si aucune taxonomie n'existe pour ce tenant, dis-le clairement plutôt que d'inventer des
-  événements."""
-
-ASK_SYSTEM_PROMPT = """Tu es le routeur VIGIE. Tu ne réponds jamais directement à une question
-toi-même.
-
-Pour chaque question reçue, délègue-la via l'outil Agent à l'un des deux agents disponibles :
-- diagnostic-investigator : questions techniques/infrastructure (erreurs, latence, disponibilité,
-  logs, métriques, traces).
-- business-analyst : questions métier (KPIs, événements métier, taxonomie).
-
-Si la question mélange les deux registres, délègue d'abord à diagnostic-investigator, puis à
-business-analyst si un éclairage métier est encore nécessaire, et synthétise les deux réponses.
-
-Règle stricte : n'appelle jamais un outil toi-même, ton seul rôle est de choisir le ou les bons
-agents et de leur transmettre la question."""
+- Distingue toujours les FAITS (observés dans les données) des HYPOTHÈSES.
+- Si les données sont insuffisantes, dis-le et propose une instrumentation complémentaire.
+- Si aucune taxonomie n'existe pour ce tenant, dis-le clairement plutôt que d'inventer.
+- Réponds en français, de façon concise et actionnable."""
 
 _BIZ_TOOL_MATCHER = "mcp__vigie-biz__.*"
 
-_ASK_OBS_TOOL_NAMES = [
-    "mcp__vigie-obs__query_loki",
-    "mcp__vigie-obs__query_prometheus",
-    "mcp__vigie-obs__query_traces",
-]
-_ASK_BIZ_TOOL_NAMES = [
-    "mcp__vigie-biz__query_business_kpis",
-    "mcp__vigie-biz__query_taxonomy",
-]
-
 
 def build_ask_options(tenant_id: str, system_prompt: str | None = None) -> ClaudeAgentOptions:
-    """Preset de l'agent orchestrateur ask — routeur pur, délègue toujours à un sous-agent."""
+    """Preset de l'agent ask — agent racine unique doté de tous les outils (obs + biz).
+
+    Le design « routeur pur + 2 sous-agents » (AgentDefinition diagnostic-investigator +
+    business-analyst, root restreint à l'outil Agent) a été chargé en confiance puis rejeté
+    après mesure : les appels d'outil MCP faits depuis un sous-agent, une fois gardés par des
+    hooks PreToolUse (budget + scope tenant), échouent de façon intermittente avec
+    « Stream closed » côté CLI (4 échecs sur 6 runs réels, tenant réel, Loki/Prometheus réels,
+    claude_agent_sdk 0.2.113 / CLI 2.1.202) — une régression silencieuse : le tour racine
+    rapporte quand même une réponse plausible ou un pseudo-message d'erreur métier au lieu de
+    faire remonter l'échec. Le même hook sur un appel d'outil fait directement par l'agent
+    racine (ce preset, ou build_diagnostic_options) n'a jamais échoué (0/4 sur le même test).
+    Le sous-agent PEUT invoquer un serveur MCP in-process et les hooks PreToolUse (deny et
+    allow+updatedInput) s'y déclenchent bien en isolation — donc rien n'empêche
+    structurellement le design routeur — mais la combinaison sous-agent + hook + outil réel
+    n'est pas fiable en l'état sur le CLI bundlé. Un agent racine unique évite ce chemine de
+    code entièrement.
+    """
     # Late import to avoid circular dependency: taxonomy.py -> runner.py -> options.py
     from agent.tools.biz_server import build_biz_mcp_server
 
@@ -210,23 +213,6 @@ def build_ask_options(tenant_id: str, system_prompt: str | None = None) -> Claud
         mcp_servers={
             "vigie-obs": build_obs_mcp_server(tenant_id),
             "vigie-biz": build_biz_mcp_server(tenant_id),
-        },
-        # Agent racine : jamais d'appel direct, uniquement délégation via l'outil Agent.
-        disallowed_tools=_ASK_OBS_TOOL_NAMES + _ASK_BIZ_TOOL_NAMES,
-        agents={
-            "diagnostic-investigator": AgentDefinition(
-                description="Investigation technique (PEV) sur logs/métriques/traces.",
-                prompt=DIAGNOSTIC_SYSTEM_PROMPT,
-                tools=_ASK_OBS_TOOL_NAMES,
-                maxTurns=MAX_TOOL_TURNS,
-            ),
-            "business-analyst": AgentDefinition(
-                description="Analyse KPIs/taxonomie métier, léger, pas de boucle PEV.",
-                prompt=BUSINESS_ANALYST_SYSTEM_PROMPT,
-                tools=_ASK_BIZ_TOOL_NAMES,
-                model=MODEL_TRIAGE,
-                maxTurns=3,
-            ),
         },
         max_turns=MAX_TOOL_TURNS,
         permission_mode="bypassPermissions",

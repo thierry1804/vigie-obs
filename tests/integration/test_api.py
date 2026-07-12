@@ -19,7 +19,7 @@ def client():
 def test_health(client):
     r = client.get("/health")
     assert r.status_code == 200
-    assert r.json()["version"] == "2.0.0"
+    assert r.json()["version"] == "3.0.1"
 
 
 def test_ask_scoped_tenant(client):

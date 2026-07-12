@@ -3,7 +3,6 @@ import pytest
 from agent.config import MAX_TOOL_TURNS, MODEL_DIAGNOSTIC, MODEL_TRIAGE
 from agent.harness.options import (
     ASK_SYSTEM_PROMPT,
-    BUSINESS_ANALYST_SYSTEM_PROMPT,
     DIAGNOSTIC_SYSTEM_PROMPT,
     DISCOVERY_SYSTEM_PROMPT,
     TAXONOMY_SYSTEM_PROMPT,
@@ -124,38 +123,13 @@ def test_build_ask_options_custom_system_prompt():
     assert options.system_prompt == "Prompt de test"
 
 
-def test_build_ask_options_root_agent_disallows_direct_tool_access():
+def test_build_ask_options_is_flat_agent_without_subagents():
+    # Sous-agent + hook PreToolUse + outil MCP réel = "Stream closed" intermittent
+    # (4/6 runs réels), alors que le même hook sur un appel racine n'a jamais échoué
+    # (0/4) — cf. docstring de build_ask_options. D'où un agent racine unique.
     options = build_ask_options("acme")
-    assert set(options.disallowed_tools) == {
-        "mcp__vigie-obs__query_loki",
-        "mcp__vigie-obs__query_prometheus",
-        "mcp__vigie-obs__query_traces",
-        "mcp__vigie-biz__query_business_kpis",
-        "mcp__vigie-biz__query_taxonomy",
-    }
-
-
-def test_build_ask_options_defines_diagnostic_investigator_subagent():
-    options = build_ask_options("acme")
-    assert set(options.agents) == {"diagnostic-investigator", "business-analyst"}
-    diag = options.agents["diagnostic-investigator"]
-    assert set(diag.tools) == {
-        "mcp__vigie-obs__query_loki",
-        "mcp__vigie-obs__query_prometheus",
-        "mcp__vigie-obs__query_traces",
-    }
-    assert diag.maxTurns == MAX_TOOL_TURNS
-
-
-def test_build_ask_options_defines_business_analyst_subagent():
-    options = build_ask_options("acme")
-    biz = options.agents["business-analyst"]
-    assert set(biz.tools) == {
-        "mcp__vigie-biz__query_business_kpis",
-        "mcp__vigie-biz__query_taxonomy",
-    }
-    assert biz.model == MODEL_TRIAGE
-    assert biz.prompt == BUSINESS_ANALYST_SYSTEM_PROMPT
+    assert not options.agents
+    assert not options.disallowed_tools
 
 
 def test_build_ask_options_has_hooks_for_both_mcp_matchers():

@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+## 3.0.1 — Stabilisation post-migration harness
+
+### Fixed
+- Le CLI `claude` refusait `permission_mode="bypassPermissions"` quand le conteneur agent tourne en root (`--dangerously-skip-permissions cannot be used with root/sudo privileges`), faisant échouer tout appel harness avec `Command failed with exit code 1`. Ajoute `IS_SANDBOX=1` (échappatoire officielle du CLI pour environnement conteneurisé) dans `agent/Dockerfile` et `docker-compose.yml`.
+- Loki (`vigie-loki`) partait en crash-loop au démarrage : `retention_enabled: true` sans `compactor.delete_request_store` est rejeté par la validation de config depuis Loki 2.9+/3.x (« compactor.delete-request-store should be configured when retention is enabled »). Ajoute `delete_request_store: filesystem` dans `config/loki.yaml`.
+- Durcit l'isolation multi-tenant des requêtes LogQL directement dans `agent/tools/loki.py::run_query_loki` (nouvelle fonction `_scope_logql_to_tenant`), plutôt que de compter uniquement sur le hook `PreToolUse` `make_tenant_scope_hook`. Nécessaire car deux chemins réels appellent `run_query_loki` sans jamais passer par les hooks du SDK : le serveur MCP externe (`agent/mcp/tools.py`) et le service d'alerting (`agent/services/alerting.py`).
+
+### Changed
+- `build_ask_options` (préset `ask`) repasse d'une conception « routeur pur + 2 sous-agents » à un agent racine unique doté des 5 outils (obs + biz). Un run réel a montré qu'un appel d'outil MCP fait depuis un sous-agent et gardé par un hook `PreToolUse` échoue de façon intermittente (« Stream closed », 4 échecs / 6 runs) alors que le même hook sur un appel fait par l'agent racine n'a jamais échoué (0/4) — voir [`docs/superpowers/harness-migration-status.md`](docs/superpowers/harness-migration-status.md) §4.14 pour le détail de l'investigation. Comportement externe inchangé (mêmes endpoints, mêmes contrats).
+
 ## 3.0.0 — Harness agentique (V3)
 
 ### Changed

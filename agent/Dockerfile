@@ -18,6 +18,9 @@ COPY cli/ /app/cli/
 ENV PYTHONPATH=/app
 ENV VIGIE_DATA_DIR=/data
 ENV VIGIE_MOCK_LLM=0
+# Service headless conteneurisé : autorise le CLI Claude Code à s'exécuter en
+# root avec bypassPermissions (sinon refus « cannot be used with root/sudo »).
+ENV IS_SANDBOX=1
 
 RUN mkdir -p /data
 
