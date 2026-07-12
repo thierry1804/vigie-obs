@@ -22,6 +22,9 @@ docker compose up -d --build
 - Grafana : http://localhost:3000
 - Agent : http://localhost:8080/docs
 
+Pour l'installation complète (multi-tenant, alerting, MCP, dépannage) et le guide
+d'utilisation, voir le **[Guide utilisateur](docs/guide-utilisateur.md)**.
+
 ## CLI
 
 ```bash
@@ -39,8 +42,8 @@ PYTHONPATH=. VIGIE_MOCK_LLM=1 .venv/bin/pytest tests/ -v
 
 ## Documentation
 
-- [Install V1](docs/runbooks/install-v1.md)
-- [Install V2](docs/runbooks/install-v2.md)
+- **[Guide utilisateur](docs/guide-utilisateur.md)** — installation complète et utilisation (API, CLI, alerting, MCP)
+- [Install V1](docs/runbooks/install-v1.md) / [Install V2](docs/runbooks/install-v2.md) — versions courtes historiques
 - [Intégration MCP](docs/mcp-integration.md)
 - [Validations externes pending](docs/pending-external-validation.md)
 - [CHANGELOG](CHANGELOG.md)
